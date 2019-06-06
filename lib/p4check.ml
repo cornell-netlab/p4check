@@ -17,6 +17,18 @@ open Petr4
 open Types
 open Core
 
+(** Notes:
+ * + Assumes V1Model: 
+     - single struct with headers named "headers"
+     - extern methods are hard-coded (e.g. [execute_meter]) or [count]
+ * + Will Fail on [ErrorMembers]
+ * + Makes a strong assumption about behavior of [stack.push_front(e)] method.
+      - it finds the maximum valid header index [i] and adds [stack[i+1]] to the type
+      - The correct way to handle this is to traverse the type and increment every 
+        found index [stack[i]] to [stack[i+1]], then add stack[0] to the type.
+      - Both approaches are sound, but the "correct way" will reject fewer programs.
+ *)
+
 (* Header Types *)
 module HSet =
   Set.Make(struct
