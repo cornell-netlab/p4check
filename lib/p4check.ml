@@ -19,8 +19,8 @@ open Core
 
 (** Notes:
  * + Assumes V1Model: 
-     - single struct with headers named "headers"
-     - extern methods are hard-coded (e.g. [execute_meter]) or [count]
+     - reads name of struct with headers from second parameter to the first parameter V1Model package constructor 
+     - extern methods are hard-coded into [check_dispatch] (e.g. [execute_meter] or [count])
  * + Will Fail on [ErrorMembers]
  * + Makes a strong assumption about behavior of [stack.push_front(e)] method.
       - it finds the maximum valid header index [i] and adds [stack[i+1]] to the type
@@ -1588,7 +1588,7 @@ and check_control_stmt prog ctx all valids (stmt : Statement.t) typ : Type.t=
         |> check_switch_cases prog ctx all valids cs
      end    
   | DeclarationStatement decl ->
-     failwith "Match on declaration -- Error on instantiation!!! check Variable"
+     failwith ("Error :: unsupported declaration control statement at " ^ Petr4.Info.to_string info)
   | Exit -> typ
   | EmptyStatement -> typ
                     
@@ -1600,6 +1600,26 @@ and check_control prog all (ctrl : Declaration.t) typ =
   | _ -> failwith ("Expected Control, got " ^ snd (name ctrl) ^ " which is not a control declaration")
        
 
+
+and get_header_type_name prsr_ctx : string =
+  let open Declaration in
+  let open Parameter in
+  match prsr_ctx with
+  | (info, Parser p) ->
+     begin
+     match p.params with
+     | _::(_,hdrs)::_ ->
+        begin
+          match hdrs.typ with
+          | (_, TypeName (_, headers)) ->
+             headers
+          | _ ->
+             failwith "Error : could not extract name for header type" 
+        end
+     | _ -> failwith ("Error :: expecting a V1Model parser, only got " ^ Int.to_string (List.length p.params) ^ " parameters")
+     end
+  | _ -> failwith "Error :: Expecting parser as argument to [get_header_type_name]"
+  
        
 and check_prog (prog : program) : Type.t option =
   let open Option in
@@ -1616,13 +1636,13 @@ and check_prog (prog : program) : Type.t option =
   | None -> failwith "Couldn't find main package"
   | Some (parser_name, pipeline_names) ->
      (* Printf.printf ">>>>>Getting instances\n%!"; *)
-     let all = all_insts prog "headers" in
      (* Printf.printf "<<<<<gotten %d instances\n%!" (HSet.length all); *)
      lookup_parser_state prog parser_name "start"
      >>= fun (prsr_ctx,start_state) ->
      (* Printf.printf "Found parser and start state\n%!"; *)
      Printf.printf "Analyzing %d pipeline stages\n%!" (List.length pipeline_names + 1);
      Printf.printf ">>>>>>Checking %s\n%!" parser_name;
+     let all = all_insts prog (get_header_type_name prsr_ctx) in
      check_parser_state prog prsr_ctx all penv start_state Type.epsilon
      >>= fun prsr_typ ->
      Printf.printf "<<<<<< Checked %s, type has size %d \n%!" parser_name (Type.size prsr_typ);
