@@ -1,6 +1,0 @@
-(library
-  (public_name p4check)
-  (name p4check)
-   (libraries bignum core ppx_deriving_yojson.runtime yojson petr4)
-   (preprocess (pps ppx_jane ppx_deriving_yojson)))
-  
