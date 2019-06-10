@@ -77,5 +77,11 @@ let command =
 
 
 let () =
+  Gc.(set { (get ()) with 
+    minor_heap_size=33554432;
+    major_heap_increment=200;
+    space_overhead=100;
+    max_overhead=200000;
+  });
   Command.run ~version:"0.1" command
 

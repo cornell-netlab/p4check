@@ -242,6 +242,7 @@ end = struct
         r
       | Some r -> 
         r
+
   let size t = UH.unget t |> U.length
 end
 
@@ -665,7 +666,7 @@ let check_valid all typ hdr =
   (* let () = Printf.printf "Headers: ";
    *          List.iter (HSet.to_list all) ~f:(fun h -> Printf.printf "%s " h);
    *          Printf.printf "\n%!" in *)
-  not (HSet.mem all hdr) || Type.valid typ hdr
+  Type.valid typ hdr || not (HSet.mem all hdr)
 
 let warning_str : string=
   let open ANSITerminal in
@@ -725,7 +726,6 @@ let stack_size prog typstr : int option =
            | _ -> acc
          end
     )
-
   
 let rec find_available_index ?start:(start=0) prog (all : HSet.t) typ typstr =
   (* Printf.printf "Finding smallest available index for %s, currently on %d\n%!" typstr start; *)
@@ -1369,11 +1369,7 @@ and check_table (info : Petr4.Info.t) prog ctx all typ tbl =
   let def_typ = 
     find_and_check_custom prog ctx all customs "default_action" typ
   in
-  let implementation_typ =
-    find_and_check_custom prog ctx all customs "implementation" typ
-  in
-  let ent_typ = check_entries prog ctx all valids typ entries in
-  (acts_typ_map, def_typ, ent_typ, implementation_typ)
+  (acts_typ_map, def_typ)
 
 
 and get_locals decl =
@@ -1436,13 +1432,10 @@ and check_action_run prog ctx all tbl_to_apply cases typ : Type.t =
      match lookup_table prog ctx tbl_name with
      | None -> failwith ("Error :: Could not find table [" ^ tbl_name ^ "], invoked from " ^ Petr4.Info.to_string name_info)
      | Some tbl_props ->
-        let acts_typ_map, def_typ, ent_typ, impl_typ = check_table name_info prog ctx all typ tbl_props in
+        let acts_typ_map, def_typ = check_table name_info prog ctx all typ tbl_props in
         typ
         |> check_action_run_cases prog ctx all acts_typ_map def_typ cases
         |> Type.union def_typ
-        |> Type.union ent_typ
-        |> Type.union impl_typ
-        
      end
   | (tbl_call_info,_) -> failwith ("Error :: Don't know which table to call at " ^ Petr4.Info.to_string tbl_call_info )
 
@@ -1472,13 +1465,11 @@ and check_dispatch stmt_or_expr prog ctx all valids info func typ =
                     end
                  | Some table ->
                     (* let () = Printf.printf "Checking table %s\n%!" (snd object_name) in *)
-                    let acts_typ_map, def_typ, ent_typ, impl_typ = check_table info prog ctx all typ table in
+                    let acts_typ_map, def_typ = check_table info prog ctx all typ table in
                     (* Type.format Format.std_formatter ent_typ;
                      * Format.printf "@]%!\n";
                      * Printf.printf "\n"; *)
-                    Type.(union (typ_of_typ_map acts_typ_map) def_typ
-                          |> union ent_typ
-                          |> union impl_typ)
+                    Type.(union (typ_of_typ_map acts_typ_map) def_typ)
                end
             | _ -> failwith "TODO APPLYING SOMETHING OTHER THAN A TABLE OR CONTROL"
           end
@@ -1643,7 +1634,7 @@ and check_prog (prog : program) : Type.t option =
      Printf.printf "Analyzing %d pipeline stages\n%!" (List.length pipeline_names + 1);
      Printf.printf ">>>>>>Checking %s\n%!" parser_name;
      let all = all_insts prog (get_header_type_name prsr_ctx) in
-     check_parser_state prog prsr_ctx all penv start_state Type.epsilon
+     check_parser_state prog prsr_ctx all penv start_state Type.epsilon 
      >>= fun prsr_typ ->
      Printf.printf "<<<<<< Checked %s, type has size %d \n%!" parser_name (Type.size prsr_typ);
      List.fold_left pipeline_names
