@@ -2,5 +2,5 @@
   (public_name p4check)
   (name p4check)
    (libraries bignum core ppx_deriving_yojson.runtime yojson ANSITerminal petr4)
-   (preprocess (pps ppx_jane ppx_deriving_yojson)))
+   (preprocess (pps ppx_let ppx_jane ppx_deriving_yojson)))
   
