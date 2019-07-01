@@ -296,41 +296,46 @@ let all_insts (p : program) (header_struct_name : string) =
     ) |> Option.value ~default:HSet.empty
   
 
+let value_exn_msg msg opt =
+  match opt with
+  | Some x -> x
+  | None -> failwith msg
+
 let lookup_parser_state prog pname statename =
   (* Printf.printf "Looking for parser %s\n" pname; *)
   let Program decls = prog in
   List.fold decls ~init:None
     ~f:(fun state decl ->
-      match state with
-      | Some _ -> state
-      | None ->
-         begin
-           let open Declaration in
-           match decl with
-           | TypeDeclaration _ -> state
-           | Declaration decl ->
+        match state with
+        | Some _ -> state
+        | None ->
+          begin
+            let open Declaration in
+            match decl with
+            | TypeDeclaration _ -> state
+            | Declaration decl ->
               match decl with
               | ((_, Parser p) as prsr) ->
-                 (* Printf.printf "Found parser %s\n" (snd (name prsr)); *)
-                 if snd p.name = pname then
-                   (* let () = Printf.printf "looking for \"%s\" state\n" statename in *)
-                   List.fold p.states ~init:None
-                     ~f:(fun res ((_,s) as state) ->
-                       (* let () = Printf.printf "\tLooking at state %s\n" (snd s.name) in *)
-                       match res with
-                       | None ->
+                (* Printf.printf "Found parser %s\n" (snd (name prsr)); *)
+                if snd p.name = pname then
+                  (* let () = Printf.printf "looking for \"%s\" state\n" statename in *)
+                  List.fold p.states ~init:None
+                    ~f:(fun res ((_,s) as state) ->
+                        (* let () = Printf.printf "\tLooking at state %s\n" (snd s.name) in *)
+                        match res with
+                        | None ->
                           if statename = snd s.name then
                             (* let ()  = Printf.printf "\t which matches\n" in *)
                             Some(prsr, state)
                           else
                             res
-                       | Some x -> (* let () = Printf.printf "\tbut I already found %s\n" statename in *)
-                                   res
-                     )
-                 else state
+                        | Some x -> (* let () = Printf.printf "\tbut I already found %s\n" statename in *)
+                          res
+                      )
+                else state
               | (_,_) -> None
-         end
-    )
+          end )
+  |> value_exn_msg ("Could not find state " ^ statename)
 
 let lookup_action_function (prog : program) (decl : Declaration.t) (string:string) : Declaration.t option  =
   let open Declaration in
@@ -372,7 +377,7 @@ let lookup_action_function (prog : program) (decl : Declaration.t) (string:strin
   | _ -> None
                                        
 
-let lookup_control_state prog cname : Declaration.t option =
+let lookup_control_state prog cname : Declaration.t =
   let Program decls = prog in
   (* Printf.printf "finding %s in %d decls\n" cname (List.length decls); *)
   List.fold decls ~init:None
@@ -395,7 +400,7 @@ let lookup_control_state prog cname : Declaration.t option =
                    state
               | _ -> None
          end      
-    )  
+    ) |> value_exn_msg ("Could not find control state " ^ cname)
 
 let lookup_ctrl_inst_decl_list prog decl_list iname =
   let open TopDeclaration in
@@ -421,7 +426,7 @@ let lookup_ctrl_inst_decl_list prog decl_list iname =
                      let open Type in
                      match c.typ with
                      | _, (TypeName tn) ->
-                        lookup_control_state prog (snd tn)
+                        Some (lookup_control_state prog (snd tn))
                      | _ -> failwith ( "ERROR :: Don't know how to lookup instantiation type that isn't a name at "
                                        ^ Petr4.Info.to_string info)
                    else
@@ -438,9 +443,8 @@ let lookup_ctrl_inst_decl_list prog decl_list iname =
               else
                 None
          end)
-    
   
-let lookup_control_instance prog ctx iname : Declaration.t option =
+let lookup_control_instance prog ctx iname : Declaration.t =
   let open TopDeclaration in
   let open Declaration in
   let Program decls = prog in
@@ -456,8 +460,9 @@ let lookup_control_instance prog ctx iname : Declaration.t option =
           | Some d -> Some d
           | None ->
              (* maybe iname is really a direct application, try that *)
-             lookup_control_state prog iname
+             lookup_control_state prog iname |> Some
      end
+     |> value_exn_msg ("could not find control instance" ^ iname)
   | _ -> failwith "Error :: Expecting control got other type"
   
                    
@@ -600,8 +605,8 @@ let lookup_package prog pname =
                else
                  (* let () = Printf.printf "Noting that %s != %s\n" namestr pname in *)
                  None
-            | _ -> pkg
-    )
+            | _ -> pkg)
+  |> value_exn_msg ("could not find package" ^ pname)
 
 
   
@@ -689,7 +694,8 @@ let warn_assume_valid info str act =
 let warn_assume_masked info hdr str =
   Format.eprintf "@[%s: %s: assuming either %s matched as valid or %s wildcarded@\n@]%!" (format_t info) warning_str hdr str
 
-
+let warn_no_index info hdr =
+  Format.eprintf "@[%s: %s: parsed more elements of %s than allowed in the type! @\n@]%!" (format_t info) error_str hdr
   
 let assert_valid info typ hdr = 
   Format.eprintf "@[%s: %s: %s not guaranteed to be valid@\n@]%!" (format_t info) error_str hdr
@@ -741,7 +747,7 @@ let rec find_available_index ?start:(start=0) prog (all : HSet.t) typ typstr =
     else
       Some start
   
-let rec check_parser_stmt prog (ctx : Declaration.t) (all : HSet.t) (penv : string option * (int * int) HMap.t) stmt typ =
+let rec check_parser_stmt prog (ctx : Declaration.t) (all : HSet.t) (penv : string option * (int * int) HMap.t) stmt typ  =
   let open Statement in
   let open Expression in
   let open Type in
@@ -781,8 +787,7 @@ let rec check_parser_stmt prog (ctx : Declaration.t) (all : HSet.t) (penv : stri
                               if curr = "next" then
                                 match find_available_index prog all typ typstr with
                                 | None -> (*no available index for the header*)
-                                   (* Printf.printf "Warning :: No available index for %s, returning None\n%!" typstr; *)
-                                   None
+                                  None
                                 | Some idx ->
                                    let typstr_idx = typstr ^ "[" ^ Int.to_string idx ^ "]" in
                                    let penv' = (Some typstr_idx, snd penv) in
@@ -799,7 +804,7 @@ let rec check_parser_stmt prog (ctx : Declaration.t) (all : HSet.t) (penv : stri
                            | None, _-> failwith ("ERROR :: couldn't find member from expression at " ^ (Petr4.Info.to_string (fst array)))
                            | Some mem, (_, Int (_, i)) ->
                               let typstr = mem ^ "[" ^ (Bigint.to_string i.value) ^ "]" in
-                              Some(penv, Type.add typ typstr)
+                              Some (penv, Type.add typ typstr)
                            | Some mem, (info,_) -> failwith ("Error :: Array access not an integer literal at " ^ Petr4.Info.to_string info)
                          end
                       | _ -> failwith ("ERROR :: unrecognized header at " ^ Petr4.Info.to_string info)
@@ -813,10 +818,10 @@ let rec check_parser_stmt prog (ctx : Declaration.t) (all : HSet.t) (penv : stri
      end
   | Assignment a ->
      (* let () = Printf.printf "Its an Assignment \n%!" in *)
-     Some (penv, 
-      typ
-      |> check_parser_expr prog ctx all penv a.rhs
-      |> check_parser_expr prog ctx all penv a.lhs)
+    Some (penv, 
+          typ
+          |> check_parser_expr prog ctx all penv a.rhs
+          |> check_parser_expr prog ctx all penv a.lhs)
   | DirectApplication {typ=cp_typ; args=args} ->
      (* let () = Printf.printf "Its a Direct Application \n" in     
       * let lookfor typestr =
@@ -837,23 +842,23 @@ let rec check_parser_stmt prog (ctx : Declaration.t) (all : HSet.t) (penv : stri
      
   | Conditional {cond=cond; tru=tru_stmt; fls=fls_stmt} ->
      (* let () = Printf.printf "Its a Conditional\n%!" in *)
-     Some (penv, 
-      check_conditional_stmt prog ctx all [] cond tru_stmt fls_stmt typ)
+    Some (penv, 
+          check_conditional_stmt prog ctx all [] cond tru_stmt fls_stmt typ)
   | BlockStatement {block = block} ->
      (* let () = Printf.printf "Its a Block\n%!" in *)
-     Some (penv, check_block prog ctx all [] block typ)
+    Some (penv, check_block prog ctx all [] block typ)
   | Exit -> Some (penv, typ)          
   | EmptyStatement -> Some (penv,typ)
   | Return {expr=None} -> Some (penv, typ)
   | Return {expr=Some e} -> (* Printf.printf "RETURNING SOMEWHERE?\n%!"; *)
                             Some (penv, check_parser_expr prog ctx all penv e typ)
   | Switch sw ->
-     Some (penv, 
-      typ
-      |> check_expr prog ctx all [] sw.expr
-      |> check_switch_cases prog ctx all [] sw.cases)
+    Some (penv, 
+          typ
+          |> check_expr prog ctx all [] sw.expr
+          |> check_switch_cases prog ctx all [] sw.cases)
   | DeclarationStatement decl ->
-     failwith ("Error ::Don't know how to handle local declarations at" ^ Petr4.Info.to_string (fst stmt))
+    failwith ("Error ::Don't know how to handle local declarations at" ^ Petr4.Info.to_string (fst stmt))
     
 
 
@@ -961,7 +966,7 @@ and check_expr prog ctx all (valids : string list) expr ?act:(act="") typ =
        | None,_ -> failwith ("TODO :: could not extract expression at " ^ Petr4.Info.to_string info)
        | Some mem, true ->
           begin
-          match find_available_index prog all typ mem  with
+            match find_available_index prog all typ mem  with
           | None ->
              (* none means index >= stack size*)
              typ
@@ -1026,22 +1031,17 @@ and check_parser_matches (prog : program) ctx all (penv : string option * (int *
     ~f:(fun acc m -> check_parser_match prog ctx all penv m typ)
   
   
-and check_parser_case (prog : program) ctx all (penv : string option * (int * int) HMap.t) (case:Parser.case) typ : Type.t =
+and check_parser_case (prog : program) ctx all (penv : string option * (int * int) HMap.t) (case:Parser.case) typ : Type.t option =
   let (_,c) = case in
   let typ = check_parser_matches prog ctx all penv c.matches typ in
   if snd c.next = "accept" then
-    typ
+    Some typ
   else if snd c.next = "reject" then
-    Type.empty
+    Some Type.empty
   else
-    match lookup_parser_state prog (snd (Declaration.name ctx)) (snd c.next) with
-    | None -> failwith ("Couldnt find parser state " ^ (snd c.next))
-    | Some (_,next_hop) ->
-       (* Printf.printf "Hopping to %s\n%!" (snd c.next); *)
-       match check_parser_state prog ctx all penv next_hop typ with
-       | None -> (* behave as if reject *)
-          Type.empty
-       | Some typ ->  typ
+    let (_, next_hop) =  lookup_parser_state prog (snd (Declaration.name ctx)) (snd c.next) in
+    Printf.printf "Hopping to %s\n%!" (snd c.next);
+    check_parser_state prog ctx all penv next_hop typ 
     
     
 and check_parser_statements (prog : program) ctx (all_hdrs : HSet.t) (penv : string option * (int * int) HMap.t) stmts typ : Type.t option =
@@ -1049,9 +1049,9 @@ and check_parser_statements (prog : program) ctx (all_hdrs : HSet.t) (penv : str
   List.fold_left stmts
     ~init:(Some (penv, typ))
     ~f:(fun acc_opt stmt ->
-      acc_opt >>= fun (penv, typ) ->
-      check_parser_stmt prog ctx all_hdrs penv stmt typ
-    )  >>= fun (penv', typ') -> Some typ'
+        acc_opt >>= fun (penv', typ') -> 
+        check_parser_stmt prog ctx all_hdrs penv' stmt typ')
+  >>= fun (_, typ) -> Some typ
 
 
   
@@ -1064,11 +1064,12 @@ and check_cases prog ctx all (penv : string option * (int * int) HMap.t) cases t
   List.fold_left cases
     ~init:(Type.empty)
     ~f:(fun acc case ->
-      check_parser_case prog ctx all penv case typ
-      |> Type.union acc
+        match check_parser_case prog ctx all penv case typ with
+        | None -> acc
+        | Some typ' -> Type.union acc typ'
     )
   
-and check_transition prog ctx (all : HSet.t) (penv : string option * (int * int) HMap.t) trans typ : Type.t option=
+and check_transition prog ctx (all : HSet.t) (penv : string option * (int * int) HMap.t) trans typ : Type.t option =
   begin
     let open Parser in
     match trans with
@@ -1079,19 +1080,17 @@ and check_transition prog ctx (all : HSet.t) (penv : string option * (int * int)
          Some Type.empty
        else
          begin 
-           match lookup_parser_state prog (snd (Declaration.name ctx)) n  with
-           | None -> failwith ("Couldn't find parser state " ^ n)
-           | Some (_, next_hop) ->
-              check_parser_state prog ctx all penv next_hop typ
+           let (_, next_hop) = lookup_parser_state prog (snd (Declaration.name ctx)) n in
+           check_parser_state prog ctx all penv next_hop typ
          end
     | (_, Select {exprs=es; cases=cs}) ->
-       Some (typ
-       |> check_parser_exprs prog ctx all penv es
-       |> check_cases prog ctx all penv cs)
+      Some (typ
+            |> check_parser_exprs prog ctx all penv es
+            |> check_cases prog ctx all penv cs)
       
   end
   
-and check_parser_state (prog : program) (ctx : Declaration.t) (all_hdrs : HSet.t) (penv : 'a option * (int * int) HMap.t) (state : Parser.state) typ : Type.t option=
+and check_parser_state (prog : program) (ctx : Declaration.t) (all_hdrs : HSet.t) (penv : 'a option * (int * int) HMap.t) (state : Parser.state) typ : Type.t option =
   let open Parser in
   let open Option in
   let (_, s) = state in
@@ -1465,8 +1464,7 @@ and check_dispatch stmt_or_expr prog ctx all valids info func typ =
                     let open TopDeclaration in
                     begin
                       match lookup_control_instance prog ctx (snd object_name) with
-                      | None -> failwith ("Could not resolve name " ^ snd object_name)
-                      | Some ((_, Control c) as ctrl_ctx)  ->
+                      | ((_, Control c) as ctrl_ctx)  ->
                          check_block prog ctrl_ctx all valids c.apply typ
                       | _ -> failwith "ERROR :: expected control from [lookup_control_instance]"
                     end
@@ -1558,9 +1556,8 @@ and check_control_stmt prog ctx all valids (stmt : Statement.t) typ : Type.t=
      |> check_control_expr prog ctx all valids a.lhs
   | DirectApplication {typ=cp_typ; args=args} ->
      let lookfor typestr =
-       match lookup_control_instance prog ctx typestr with
-       | Some control -> check_control prog all control typ
-       | None -> failwith ("Could not find control " ^ typestr)
+       let control = lookup_control_instance prog ctx typestr in
+       check_control prog all control typ
      in
      begin
        match cp_typ with
@@ -1619,45 +1616,35 @@ and get_header_type_name prsr_ctx : string =
      | _ -> failwith ("Error :: expecting a V1Model parser, only got " ^ Int.to_string (List.length p.params) ^ " parameters")
      end
   | _ -> failwith "Error :: Expecting parser as argument to [get_header_type_name]"
-  
+
+
+
+and check_pipelines prog all pipeline_names typ : Type.t =
+  List.fold_left pipeline_names
+    ~init:typ
+    ~f:(fun typ name ->
+        Printf.printf ">>>>>>checking stage %s\n%!" name;
+        let stage = lookup_control_state prog name in
+        Printf.printf "Checking %s with type of size %d\n%!" name (Type.size typ);
+        (* Type.format Format.std_formatter typ;
+           * Format.printf "@]%!\n"; Printf.printf "\n"; *)
+        let outtyp = check_control prog all stage typ in
+        Printf.printf "<<<<<<<< Checked %s!\n%!" name;
+        outtyp
+      )
        
-and check_prog (prog : program) : Type.t option =
+and check_prog (prog : program) : Type.t  =
   let open Option in
   (*Lookup parser name, lookup control name(s) and check them in
      sequence, according to package named "main"*)
-  (* Printf.printf "Get the parser environment\n%!"; *)
   let penv = parser_env prog in
-  (* Printf.printf "Gotten\n%!"; *)
-  (* Printf.printf "searching for main\n%!"; *)
-  let main_package = lookup_package prog "main" in
-  (* Printf.printf "concluded search, matchin\n%!"; *)
-  
-  match main_package with
-  | None -> failwith "Couldn't find main package"
-  | Some (parser_name, pipeline_names) ->
-     (* Printf.printf ">>>>>Getting instances\n%!"; *)
-     (* Printf.printf "<<<<<gotten %d instances\n%!" (HSet.length all); *)
-     lookup_parser_state prog parser_name "start"
-     >>= fun (prsr_ctx,start_state) ->
-     (* Printf.printf "Found parser and start state\n%!"; *)
-     Printf.printf "Analyzing %d pipeline stages\n%!" (List.length pipeline_names + 1);
-     Printf.printf ">>>>>>Checking %s\n%!" parser_name;
-     let all = all_insts prog (get_header_type_name prsr_ctx) in
-     check_parser_state prog prsr_ctx all penv start_state Type.epsilon
-     >>= fun prsr_typ ->
-     Printf.printf "<<<<<< Checked %s, type has size %d \n%!" parser_name (Type.size prsr_typ);
-     List.fold_left pipeline_names
-       ~init:(Some prsr_typ)
-       ~f:(fun typ_opt name ->
-         Printf.printf ">>>>>>checking stage %s\n%!" name;
-         lookup_control_state prog name >>= fun stage ->
-         typ_opt >>= fun typ ->
-         Printf.printf "Checking %s with type of size %d\n%!" name (Type.size typ);
-         (* Type.format Format.std_formatter typ;
-          * Format.printf "@]%!\n"; Printf.printf "\n"; *)
-         let outtyp = check_control prog all stage typ in
-         Printf.printf "<<<<<<<< Checked %s!\n%!" name;
-         Some outtyp
-       )
+  let (parser_name, pipeline_names) = lookup_package prog "main" in
+  let (prsr_ctx, start_state) = lookup_parser_state prog parser_name "start" in
+  Printf.printf "Analyzing %d pipeline stages\n%!" (List.length pipeline_names + 1);
+  Printf.printf ">>>>>>Checking %s\n%!" parser_name;
+  let all = all_insts prog (get_header_type_name prsr_ctx) in
+  match check_parser_state prog prsr_ctx all penv start_state Type.epsilon with
+  | None -> failwith "Parser may not terminate"
+  | Some typ -> check_pipelines prog all pipeline_names typ
        
        

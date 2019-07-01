@@ -54,18 +54,8 @@ let command =
             let () = Format.set_margin 160 in 
             let () = Format.printf "@[" in
             (* let () = verbose (lazy (Format.printf ">>> Checking program: %s@\n%!" fn)) in *) 
-            match check_prog prog with
-            | None -> failwith "Error :: Could not check program"
-            | Some typ ->
-               (* let () = format_env Format.std_formatter env in *)               
-               (* let () = ignore(typ) in 
-                * let () = Format.printf "@]%!" in *)
-               
-               (* Printf.printf "Program has the following type\n";
-                * P4check.Type.format Format.std_formatter typ;
-                * Format.printf "@]%!\n"; *)
-
-               Printf.printf "Done!\n%!"
+            ignore(check_prog prog);
+            Printf.printf "Done!\n%!"
           end
        | `Error (info, Lexer.Error s) -> 
           Format.eprintf "%s: %s@\n%!" (Info.to_string info) s
