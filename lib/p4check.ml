@@ -22,6 +22,8 @@ open Core
      - reads name of struct with headers from second parameter to the first parameter V1Model package constructor 
      - extern methods are hard-coded into [check_dispatch] (e.g. [execute_meter] or [count])
  * + Will Fail on [ErrorMembers]
+ * + Fails on [TopLevel] expressions
+ * + Skips over [extern]s
  * + Makes a strong assumption about behavior of [stack.push_front(e)] method.
       - it finds the maximum valid header index [i] and adds [stack[i+1]] to the type
       - The correct way to handle this is to traverse the type and increment every 
@@ -1103,36 +1105,36 @@ and check_parser_state (prog : program) (ctx : Declaration.t) (all_hdrs : HSet.t
 
   
   
-and check_block prog ctx (all : HSet.t) (valids : string list) (block : Block.t) typ : Type.t =
+and check_block prog ctx (all : HSet.t) (valids : string list) (block : Block.t) ?act:(act="") typ : Type.t =
   let open Block in 
   let (info, b) : Block.t = block in
   List.fold_left b.statements
     ~init:typ
     ~f:(fun typ' stmt ->
-      check_control_stmt prog ctx all valids stmt typ'
+      check_control_stmt prog ctx all valids stmt typ' ~act
     )
 
-and check_switch_case prog (ctx : Declaration.t) (all : HSet.t) (valids : string list) (c : Statement.switch_case) typ =
+and check_switch_case prog (ctx : Declaration.t) (all : HSet.t) (valids : string list) (c : Statement.switch_case) ?act:(act="") typ =
   match c with
   | (_, FallThrough _) ->
      typ
   | (_, Action {label=_; code=block}) ->
-     check_block prog ctx all valids block typ
+     check_block prog ctx all valids block ~act typ
     
-and check_switch_cases prog (ctx : Declaration.t) (all : HSet.t) (valids : string list) (cs : Statement.switch_case list) typ : Type.t =
+and check_switch_cases prog (ctx : Declaration.t) (all : HSet.t) (valids : string list) (cs : Statement.switch_case list) ?act:(act="") typ : Type.t =
   List.fold_left cs ~init:Type.empty
-    ~f:(fun t c -> check_switch_case prog ctx all valids c t)
+    ~f:(fun t c -> check_switch_case prog ctx all valids c t ~act)
 
 
 
-and check_conditional_stmt prog (ctx : Declaration.t) all (valids : string list) cond tru_ctrl fls_opt typ  =
+and check_conditional_stmt prog (ctx : Declaration.t) all (valids : string list) cond tru_ctrl fls_opt ?act:(act="") typ  =
   ignore (check_expr prog ctx all [] cond typ);
   let tru_typ, fls_typ = partition_typ_expr typ cond in
   let tru_typ' =
     if Type.contradiction tru_typ then
       (warn_uninhabited (fst cond) ~msg:"in true branch"; tru_typ)
     else
-      check_control_stmt prog ctx all valids tru_ctrl tru_typ 
+      check_control_stmt prog ctx all valids tru_ctrl tru_typ ~act
   in
   let fls_typ' =
     match fls_opt with
@@ -1141,7 +1143,7 @@ and check_conditional_stmt prog (ctx : Declaration.t) all (valids : string list)
        if Type.contradiction fls_typ then
          (warn_uninhabited (fst cond) ~msg:"in false branch"; fls_typ)
        else
-         check_control_stmt prog ctx all valids fls_ctrl fls_typ
+         check_control_stmt prog ctx all valids fls_ctrl fls_typ ~act
   in
 
   Type.union tru_typ' fls_typ'
@@ -1297,7 +1299,7 @@ and check_table_action prog ctx all valids typ (act : Table.action_ref) =
    * in *)
   let action_body = lookup_action_function prog ctx str in
   match action_body with
-  | Some (_, Action a) ->  (str, check_block prog ctx all valids a.body typ)
+  | Some (_, Action a) ->  (str, check_block prog ctx all valids a.body typ ~act:str)
   | None -> failwith ("Error :: Could not find action "
                       ^ str ^ " in control "
                       ^ snd (Declaration.name ctx)
@@ -1438,7 +1440,7 @@ and check_action_run prog ctx all tbl_to_apply cases typ : Type.t =
      end
   | (tbl_call_info,_) -> failwith ("Error :: Don't know which table to call at " ^ Petr4.Info.to_string tbl_call_info )
 
-and check_dispatch stmt_or_expr prog ctx all valids info func typ =
+and check_dispatch stmt_or_expr prog ctx all valids info func ?act:(act="") typ =
   let open Statement in
   let open Expression in
   let casestr = match stmt_or_expr with | `Stmt -> "statement" | `Expr -> "expression" | _ -> "? ???? ? ? ?" in
@@ -1458,12 +1460,12 @@ and check_dispatch stmt_or_expr prog ctx all valids info func typ =
                     begin
                       match lookup_control_instance prog ctx (snd object_name) with
                       | ((_, Control c) as ctrl_ctx)  ->
-                         check_block prog ctrl_ctx all valids c.apply typ
+                         check_block prog ctrl_ctx all valids c.apply typ ~act
                       | _ -> failwith "ERROR :: expected control from [lookup_control_instance]"
                     end
                  | Some table ->
                     (* let () = Printf.printf "Checking table %s\n%!" (snd object_name) in *)
-                    let acts_typ_map, def_typ = check_table info prog ctx all typ table in
+                    let acts_typ_map, def_typ = check_table info prog ctx all typ table  in
                     (* Type.format Format.std_formatter ent_typ;
                      * Format.printf "@]%!\n";
                      * Printf.printf "\n"; *)
@@ -1508,8 +1510,8 @@ and check_dispatch stmt_or_expr prog ctx all valids info func typ =
        | _, action ->
           begin
           match lookup_action_function prog ctx action with
-                   | Some (_, Action act) ->
-                      check_block prog ctx all valids act.body typ
+                   | Some (_, Action a) ->
+                      check_block prog ctx all valids a.body ~act typ
                    | None ->
                       failwith ("ERROR :: Could not find " ^ casestr ^" action " ^ action
                                 ^ " at " ^ (Petr4.Info.to_string info))
@@ -1533,18 +1535,18 @@ and check_dispatch stmt_or_expr prog ctx all valids info func typ =
    
   
        
-and check_control_stmt prog ctx all valids (stmt : Statement.t) typ : Type.t=
+and check_control_stmt prog ctx all valids (stmt : Statement.t) ?act:(act="") typ : Type.t=
   let open Statement in
   let (info, s) = stmt in
   (* Printf.printf "%s , Checking control stmt with |typ| = %d\n%!" (Petr4.Info.to_string info) (Type.size typ); *)
   match s with
   | MethodCall m ->
      ignore (check_args prog ctx all valids m.args typ);
-     check_dispatch `Stmt prog ctx all valids info m.func typ
+     check_dispatch `Stmt prog ctx all valids info m.func typ ~act
   | Assignment a ->
      typ
-     |> check_control_expr prog ctx all valids a.rhs
-     |> check_control_expr prog ctx all valids a.lhs
+     |> check_control_expr prog ctx all valids a.rhs ~act
+     |> check_control_expr prog ctx all valids a.lhs ~act
   | DirectApplication {typ=cp_typ; args=args} ->
      let lookfor typestr =
        let control = lookup_control_instance prog ctx typestr in
@@ -1558,13 +1560,13 @@ and check_control_stmt prog ctx all valids (stmt : Statement.t) typ : Type.t=
      end
      
   | Conditional {cond=cond; tru=tru_ctrl; fls=fls_opt } ->
-     check_conditional_stmt prog ctx all valids cond tru_ctrl fls_opt typ
+     check_conditional_stmt prog ctx all valids cond tru_ctrl fls_opt typ ~act
   | BlockStatement {block=b} ->
-     check_block prog ctx all valids b typ
+     check_block prog ctx all valids b typ ~act
   | Return {expr=None} ->
      typ
   | Return {expr=(Some e)} ->
-     check_control_expr prog ctx all valids e typ
+     check_control_expr prog ctx all valids e typ ~act
   | Switch {expr=e; cases=cs} ->
      begin
      match get_action_run_table_name e with
@@ -1572,8 +1574,8 @@ and check_control_stmt prog ctx all valids (stmt : Statement.t) typ : Type.t=
         check_action_run prog ctx all tbl_to_apply cs typ
      | None -> 
         typ
-        |> check_control_expr prog ctx all valids e
-        |> check_switch_cases prog ctx all valids cs
+        |> check_control_expr prog ctx all valids e ~act
+        |> check_switch_cases prog ctx all valids cs ~act
      end    
   | DeclarationStatement decl ->
      failwith ("Error :: unsupported declaration control statement at " ^ Petr4.Info.to_string info)
@@ -1581,7 +1583,7 @@ and check_control_stmt prog ctx all valids (stmt : Statement.t) typ : Type.t=
   | EmptyStatement -> typ
                     
 
-and check_control prog all (ctrl : Declaration.t) typ =
+and check_control prog all (ctrl : Declaration.t) typ : Type.t =
   let open Declaration in
   match ctrl with 
   | (_, Control c) -> check_block prog ctrl all [] c.apply typ

@@ -1,3 +1,4 @@
 (executable
   (name main)
+  (ocamlopt_flags -g)
   (libraries p4check petr4 ANSITerminal core))
