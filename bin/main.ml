@@ -50,7 +50,6 @@ let command =
        match parse include_dirs p4_file v with
        | `Ok prog ->
           begin
-            let open Option in
             let () = Format.set_margin 160 in 
             let () = Format.printf "@[" in
             (* let () = verbose (lazy (Format.printf ">>> Checking program: %s@\n%!" fn)) in *) 

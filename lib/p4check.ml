@@ -64,7 +64,7 @@ module Type : sig
   val neg_restrict : t -> string -> t
   val add : t -> string -> t
   val remove : t -> string -> t
-  (* val copy : t -> string -> string -> t *)
+  val copy : t -> string -> string -> t
   val valid : t -> string -> bool
   val contradiction: t -> bool
   val format : Format.formatter -> t -> unit
@@ -100,7 +100,7 @@ end = struct
 
   type t = int
 
-  let rec format fmt t =
+  let format fmt t =
     let fmt_h fmt x = Format.fprintf fmt "%s" (H.unget x) in 
     let fmt_c fmt c = 
       match C.elements (CH.unget c) with 
@@ -147,7 +147,7 @@ end = struct
         r
 
   (* Operations *)
-  let rec restrict = 
+  let restrict = 
     let memo = HTT.create() in 
     fun t h ->
       let n = H.get h in
@@ -161,7 +161,7 @@ end = struct
       | Some r -> 
         r
 
-  let rec neg_restrict = 
+  let neg_restrict = 
     let memo = HTT.create() in 
     fun t h ->
       let n = H.get h in
@@ -193,7 +193,7 @@ end = struct
        | Some r -> 
          r
     
-  let rec remove = 
+  let remove = 
     let memo = HTT.create () in 
     fun t h ->
        let n = H.get h in 
@@ -211,7 +211,7 @@ end = struct
        | Some r -> 
          r
 
-  let rec copy = 
+  let copy = 
     let memo = HTTT.create () in 
     fun t h1 h2 ->
        let n1 = H.get h1 in 
@@ -265,7 +265,7 @@ let all_insts (p : program) (header_struct_name : string) =
   let open TopDeclaration in
   let Program(decls) = p in
   
-  let f acc (info, field) =
+  let f acc (_, field) =
     let open TypeDeclaration in
     match field.typ with
     | (_, HeaderStack hs ) ->
@@ -287,10 +287,10 @@ let all_insts (p : program) (header_struct_name : string) =
   List.fold_left decls ~init:None
     ~f:(fun acc decl ->
       match acc with
-      | Some x -> acc
+      | Some _ -> acc
       | None ->
          match decl with
-         | TypeDeclaration (_, Struct{annotations; name; fields}) ->
+         | TypeDeclaration (_, Struct{annotations=_; name; fields}) ->
             if snd name = header_struct_name then
               Some (List.fold_left fields ~init:HSet.empty ~f:f)
             else
@@ -332,8 +332,8 @@ let lookup_parser_state prog pname statename =
                             Some(prsr, state)
                           else
                             res
-                        | Some x -> (* let () = Printf.printf "\tbut I already found %s\n" statename in *)
-                          res
+                        | Some _ ->
+                           res
                       )
                 else state
               | (_,_) -> None
@@ -426,7 +426,6 @@ let lookup_ctrl_inst_decl_list prog decl_list iname =
                 match decl with
                 | (info, Instantiation c ) ->
                    if iname = snd c.name then
-                     let open Type in
                      match c.typ with
                      | _, (TypeName tn) ->
                         Some (lookup_control_state prog (snd tn))
@@ -474,7 +473,6 @@ let rec acc_members ?name:(name=true) ?stack_idx:(stack_idx=None) exp_mem : stri
   let open Expression in
   match exp_mem with
   | ExpressionMember {expr=(_,exp_mem'); name=name'} ->
-     let open Option in
      if snd name' = "last" then
        match acc_members ~name exp_mem' with
        | None, b -> None, b
@@ -540,15 +538,13 @@ let is_control prog name =
   
   
 let get_parser_name prog args =
-  let Program decls = prog in
   List.fold args ~init:None ~f:(fun acc (_, arg) ->
       let open Argument in
       match arg with
       | Expression e ->
          Expression.(match e.value, acc with
-                     | (_,NamelessInstantiation {typ; args}), None ->
+                     | (_,NamelessInstantiation {typ; args=_}), None ->
                         begin
-                          let open Type in
                           match typ with
                           | (_,TypeName (_, name)) -> 
                              if is_parser prog name then
@@ -562,16 +558,14 @@ let get_parser_name prog args =
   
       
 let get_pipeline_names prog args =
-  let Program decls = prog in
   List.fold_left args ~init:[]
     ~f:(fun acc (_, arg) ->
       let open Argument in
       match arg with
       | Expression e ->
          Expression.(match e.value with
-                     | (_, NamelessInstantiation {typ; args}) ->
+                     | (_, NamelessInstantiation {typ; args=_}) ->
                         begin
-                          let open Type in
                           match typ with
                           | (_, TypeName (_,name)) ->
                              if is_control prog name then
@@ -594,13 +588,12 @@ let lookup_package prog pname =
       | Some _ ->
          pkg
       | None ->
-         let open Declaration in
          match decl with
          | TypeDeclaration _ -> pkg
          | Declaration (_, decl) ->
             let open Declaration in
             match decl with
-            | Instantiation {annotations=_; typ=typ; args=args; name=(_,namestr)} ->
+            | Instantiation {annotations=_; typ=_; args=args; name=(_,namestr)} ->
                if namestr = pname then
                  let open Option in
                  get_parser_name prog args >>= fun parsername ->
@@ -631,7 +624,7 @@ let lookup_table prog ctx (tname:string) : Table.property list option =
     let open TopDeclaration in
     match d with
     | Declaration d -> Some d
-    | TypeDeclaration d -> None
+    | TypeDeclaration _ -> None
   in
   match ctx with
   | (_, Control c) ->
@@ -685,9 +678,6 @@ let error_str =
   
 let format_t (info : Petr4.Info.t) : string = Petr4.Info.to_string info
   
-let warn_assume_valid info name act =
-  Format.eprintf "@[%s: %s: assuming %s matched as valid for rules with action %s@\n@]%!" (format_t info) warning_str name act
-  
 let warn_uninhabited info ~msg =
   Format.eprintf "@[%s: %s: type is uninhabited%s@\n@]%!" (format_t info) warning_str (if msg <> "" then " " ^ msg else msg)
 
@@ -700,7 +690,7 @@ let warn_assume_masked info hdr str =
 let warn_no_index info hdr =
   Format.eprintf "@[%s: %s: parsed more elements of %s than allowed in the type! @\n@]%!" (format_t info) error_str hdr
   
-let assert_valid info typ hdr = 
+let assert_valid info hdr = 
   Format.eprintf "@[%s: %s: %s not guaranteed to be valid@\n@]%!" (format_t info) error_str hdr
 
 
@@ -708,18 +698,18 @@ let stack_size prog typstr : int option =
   let Program(decls) = prog in
   List.fold_left decls ~init:None ~f:(fun acc decl ->
       match acc with
-      | Some max -> acc
+      | Some _ -> acc
       | None ->
          begin
            let open TopDeclaration in
            let open TypeDeclaration in
            match decl with
-           | TypeDeclaration (_, Struct {annotations; name; fields} ) ->
+           | TypeDeclaration (_, Struct {annotations=_; name; fields} ) ->
               if snd name = "headers" then
-                List.fold fields ~init:None ~f:(fun acc (info, field) ->
+                List.fold fields ~init:None ~f:(fun acc (_, field) ->
                     if snd field.name = typstr then
                       match field.typ with
-                      | (_, HeaderStack {header; size}) ->
+                      | (_, HeaderStack {header=_; size}) ->
                          let open Expression in
                          begin
                            match snd size with
@@ -752,16 +742,16 @@ let rec find_available_index ?start:(start=0) prog (all : HSet.t) typ typstr =
 let rec check_parser_stmt prog (ctx : Declaration.t) (all : HSet.t) (penv : string option * (int * int) HMap.t) stmt typ  =
   let open Statement in
   let open Expression in
-  let open Type in
   (* Format.printf "Checking Parser Statement at %s\n at type type:\n\t" (Petr4.Info.to_string (fst stmt));
    * Type.format Format.std_formatter typ;
    * Format.printf "@]%!\n";
    * Printf.printf "\n"; *)
   (* Printf.printf "Checking parser statement at %s \n%!" (Petr4.Info.to_string (fst stmt)); *)
   match snd stmt with
-  | MethodCall {func=func; type_args=type_args; args=args} ->
+  | MethodCall {func=func; type_args=_; args=args} ->
      (* Do we need to do something with type_args? *)
      (* Printf.printf "Its a Method Call\n%!"; *)
+     ignore(check_args prog ctx all []  args typ);
      begin
        match func with
        | (info, ExpressionMember {expr=_; name=name}) ->
@@ -807,7 +797,7 @@ let rec check_parser_stmt prog (ctx : Declaration.t) (all : HSet.t) (penv : stri
                            | Some mem, (_, Int (_, i)) ->
                               let typstr = mem ^ "[" ^ (Bigint.to_string i.value) ^ "]" in
                               Some (penv, Type.add typ typstr)
-                           | Some mem, (info,_) -> failwith ("Error :: Array access not an integer literal at " ^ Petr4.Info.to_string info)
+                           | Some _, (info,_) -> failwith ("Error :: Array access not an integer literal at " ^ Petr4.Info.to_string info)
                          end
                       | _ -> failwith ("ERROR :: unrecognized header at " ^ Petr4.Info.to_string info)
                     end
@@ -822,9 +812,9 @@ let rec check_parser_stmt prog (ctx : Declaration.t) (all : HSet.t) (penv : stri
      (* let () = Printf.printf "Its an Assignment \n%!" in *)
     Some (penv, 
           typ
-          |> check_parser_expr prog ctx all penv a.rhs
-          |> check_parser_expr prog ctx all penv a.lhs)
-  | DirectApplication {typ=cp_typ; args=args} ->
+          |> check_parser_expr prog ctx all a.rhs
+          |> check_parser_expr prog ctx all a.lhs)
+  | DirectApplication {typ=_; args=_} ->
      (* let () = Printf.printf "Its a Direct Application \n" in     
       * let lookfor typestr =
       *   match lookup_parser_state prog (snd (Declaration.name ctx)) typestr with
@@ -853,13 +843,13 @@ let rec check_parser_stmt prog (ctx : Declaration.t) (all : HSet.t) (penv : stri
   | EmptyStatement -> Some (penv,typ)
   | Return {expr=None} -> Some (penv, typ)
   | Return {expr=Some e} -> (* Printf.printf "RETURNING SOMEWHERE?\n%!"; *)
-                            Some (penv, check_parser_expr prog ctx all penv e typ)
+                            Some (penv, check_parser_expr prog ctx all e typ)
   | Switch sw ->
     Some (penv, 
           typ
           |> check_expr prog ctx all [] sw.expr
           |> check_switch_cases prog ctx all [] sw.cases)
-  | DeclarationStatement decl ->
+  | DeclarationStatement _ ->
     failwith ("Error ::Don't know how to handle local declarations at" ^ Petr4.Info.to_string (fst stmt))
     
 
@@ -873,7 +863,7 @@ and check_arg prog ctx all (valids : string list) arg typ =
   | _ -> typ
 
 
-and check_args prog ctx all (valids : string list) args typ =
+and check_args prog ctx all (valids : string list) (args : Argument.t list) (typ : Type.t) : Type.t =
   List.fold_left args ~init:typ
     ~f: (fun typ arg ->
       check_arg prog ctx all valids arg typ
@@ -886,7 +876,7 @@ and check_expr prog ctx all (valids : string list) expr ?act:(act="") typ =
   (* Printf.printf "Checking expr with valids: ";
    * List.iter valids ~f:(Printf.printf "%s ");
    * Printf.printf "\n%!"; *)
-  let do_valid_check ?stack:(stack=false) info name typ =
+  let do_valid_check info name typ =
     if not (check_valid all typ name) then
       (* let () = Printf.printf "-----invalid\n%!" in *)
       if List.mem valids name ~equal:(=) then
@@ -899,13 +889,13 @@ and check_expr prog ctx all (valids : string list) expr ?act:(act="") typ =
             end
           else
             begin
-              assert_valid info typ name;
+              assert_valid info name;
               typ
             end
         end
       else
         begin
-          assert_valid info typ name;
+          assert_valid info  name;
           typ
         end
     else
@@ -914,10 +904,8 @@ and check_expr prog ctx all (valids : string list) expr ?act:(act="") typ =
   in
   let (info,e) = expr in
   match e with
-  | True -> typ
-  | False -> typ
-  | Int i -> typ
-  | String s -> typ
+  | True  | False | Int _ | String _  ->
+     typ
   | Name (info,name) ->
      begin
      match lookup_action_function prog ctx name with
@@ -925,9 +913,7 @@ and check_expr prog ctx all (valids : string list) expr ?act:(act="") typ =
      | Some _ -> failwith ("name expression [" ^ name ^ "]is an action at  "^ Petr4.Info.to_string info)
      end
   | TopLevel (info, name) ->
-     (* TODO :: CHECK this *)
-     (* do_valid_check info name typ *)
-     failwith ("Error :: Toplevel expressions unsupported at " ^ (Petr4.Info.to_string info))
+     failwith ("Error :: Toplevel expression" ^ name ^" unsupported at " ^ (Petr4.Info.to_string info))
   | ArrayAccess {array=a; index=i} ->
      typ
      |> check_expr prog ctx all valids i ~act:act
@@ -944,7 +930,7 @@ and check_expr prog ctx all (valids : string list) expr ?act:(act="") typ =
        ~init:typ
        ~f:(fun typ v -> check_expr prog ctx all valids v typ ~act:act)
 
-  | UnaryOp {op=op; arg=e} ->
+  | UnaryOp {op=_; arg=e} ->
      check_expr prog ctx all valids e typ
     
   | BinaryOp {op=_; args=(e,e')} ->
@@ -959,7 +945,7 @@ and check_expr prog ctx all (valids : string list) expr ?act:(act="") typ =
      Printf.printf "Warning :: Do not know how to handle type members at %s... ignoring\n%!"
        (Petr4.Info.to_string info);
      typ
-  | ErrorMember s -> failwith "TODO :: check_expr case ErrorMember"
+  | ErrorMember _ -> failwith "ERROR (UnsupportedCommand) :: Cannot handle [ErrorMember]s"
   | ExpressionMember {expr=(info,e); name=n} ->
      if snd n = "action_run" then
        failwith ("ERROR (UnsupportedFunctionality) :: [action_run] hit analysis at " ^ (Petr4.Info.to_string info))     else
@@ -974,7 +960,7 @@ and check_expr prog ctx all (valids : string list) expr ?act:(act="") typ =
              typ
           | Some 0 ->
              (* 0 members of stack have been initialized*)
-             assert_valid info typ (mem ^ "[0]"); typ
+             assert_valid info (mem ^ "[0]"); typ
           | Some _ ->
              typ
           end
@@ -1001,8 +987,8 @@ and check_expr prog ctx all (valids : string list) expr ?act:(act="") typ =
      Type.union tru_typ' fls_typ'
      
   | FunctionCall {func=f; type_args=_; args=args} ->
-     ignore(check_args prog ctx all [] args typ);
-     check_dispatch `Expr prog ctx all [] info f typ
+     check_args prog ctx all valids args typ
+     |> check_dispatch `Expr ~act prog ctx all [] info f
      
   | NamelessInstantiation {typ=_; args=args} ->
      check_args prog ctx all valids args typ
@@ -1015,27 +1001,27 @@ and check_expr prog ctx all (valids : string list) expr ?act:(act="") typ =
      |> check_expr prog ctx all valids lo ~act:act
      |> check_expr prog ctx all valids hi ~act:act
     
-and check_parser_expr prog ctx all penv ?act:(act="") (expr:Expression.t) (typ : Type.t) : Type.t =
+and check_parser_expr prog ctx all ?act:(act="") (expr:Expression.t) (typ : Type.t) : Type.t =
   check_expr prog ctx all [] ~act:act expr typ
 
 and check_control_expr prog ctx all valids ?act:(act="") (expr:Expression.t) (typ : Type.t) : Type.t =
   check_expr prog ctx all valids ~act:act expr typ
   
-and check_parser_match prog ctx all penv (m : Match.t) typ : Type.t =
+and check_parser_match prog ctx all (m : Match.t) typ : Type.t =
   match m with
   | (_, Match.Expression e) ->
-     check_parser_expr prog ctx all penv e.expr typ
+     check_parser_expr prog ctx all e.expr typ
   | _ -> typ
        
-and check_parser_matches (prog : program) ctx all (penv : string option * (int * int) HMap.t) (matches : Match.t list) typ : Type.t =
+and check_parser_matches (prog : program) ctx all (matches : Match.t list) typ : Type.t =
   List.fold_left matches
-    ~init:typ
-    ~f:(fun acc m -> check_parser_match prog ctx all penv m typ)
+    ~init:Type.empty
+    ~f:(fun acc m -> check_parser_match prog ctx all m typ |> Type.union acc)
   
   
 and check_parser_case (prog : program) ctx all (penv : string option * (int * int) HMap.t) (case:Parser.case) typ : Type.t option =
   let (_,c) = case in
-  let typ = check_parser_matches prog ctx all penv c.matches typ in
+  let typ = check_parser_matches prog ctx all c.matches typ in
   if snd c.next = "accept" then
     Some typ
   else if snd c.next = "reject" then
@@ -1057,9 +1043,9 @@ and check_parser_statements (prog : program) ctx (all_hdrs : HSet.t) (penv : str
 
 
   
-and check_parser_exprs prog ctx all (penv : string option * (int * int) HMap.t) exprs typ =
+and check_parser_exprs prog ctx all exprs typ =
   List.fold_left exprs ~init:typ
-    ~f:(fun typ expr -> check_parser_expr prog ctx all penv expr typ)
+    ~f:(fun typ expr -> check_parser_expr prog ctx all expr typ)
 
 and check_cases prog ctx all (penv : string option * (int * int) HMap.t) cases typ =
   (* Printf.printf "Checking %d cases \n%!" (List.length cases); *)
@@ -1087,7 +1073,7 @@ and check_transition prog ctx (all : HSet.t) (penv : string option * (int * int)
          end
     | (_, Select {exprs=es; cases=cs}) ->
       Some (typ
-            |> check_parser_exprs prog ctx all penv es
+            |> check_parser_exprs prog ctx all es
             |> check_cases prog ctx all penv cs)
       
   end
@@ -1107,7 +1093,7 @@ and check_parser_state (prog : program) (ctx : Declaration.t) (all_hdrs : HSet.t
   
 and check_block prog ctx (all : HSet.t) (valids : string list) (block : Block.t) ?act:(act="") typ : Type.t =
   let open Block in 
-  let (info, b) : Block.t = block in
+  let (_, b) : Block.t = block in
   List.fold_left b.statements
     ~init:typ
     ~f:(fun typ' stmt ->
@@ -1122,8 +1108,8 @@ and check_switch_case prog (ctx : Declaration.t) (all : HSet.t) (valids : string
      check_block prog ctx all valids block ~act typ
     
 and check_switch_cases prog (ctx : Declaration.t) (all : HSet.t) (valids : string list) (cs : Statement.switch_case list) ?act:(act="") typ : Type.t =
-  List.fold_left cs ~init:Type.empty
-    ~f:(fun t c -> check_switch_case prog ctx all valids c t ~act)
+  List.fold_left cs ~init:Type.empty (**should be typ? *)
+    ~f:(fun t c -> check_switch_case prog ctx all valids c typ ~act |> Type.union t)
 
 
 
@@ -1211,7 +1197,7 @@ and unpack_table table =
          let (valids', all_keys') =
            List.fold (keys) ~init:(valids, all_keys)
              ~f:(fun (vs, ks) k ->
-               let (is_valid, hdrstr_opt) = is_validity_expr (snd k).key in
+               let (_, hdrstr_opt) = is_validity_expr (snd k).key in
                match hdrstr_opt with
                | Some hdr -> 
                   ( hdr :: vs, ks)
@@ -1261,7 +1247,7 @@ and header_inst_of_expr expr =
      end
   | (_, Mask m) ->
      header_inst_of_expr m.expr
-  | (info, BitStringAccess {bits;
+  | (_, BitStringAccess {bits;
                             lo=(_, Int(_, intlo));
                             hi=(_, Int(_, inthi))}) ->
      header_inst_of_expr bits >>= fun bits_name ->
@@ -1272,7 +1258,7 @@ and header_inst_of_expr expr =
   | (info, List _) -> error_msg "List" info
   | (info,_) -> error_msg "??" info
 
-and check_table_key prog all valids typ (key : Table.key) =
+and check_table_key all valids typ (key : Table.key) =
   let open Table in
   let (info, k) = key in
   if fst (is_validity_expr k.key) then
@@ -1286,7 +1272,7 @@ and check_table_key prog all valids typ (key : Table.key) =
            if is_maskable k.match_kind && List.mem valids hdrstr ~equal:(=) then
              warn_assume_masked info hdrstr hdrstr
            else
-             assert_valid info typ hdrstr
+             assert_valid info hdrstr
          end
        else ()
 
@@ -1307,11 +1293,10 @@ and check_table_action prog ctx all valids typ (act : Table.action_ref) =
   | _ -> failwith "Error Expected Action as result of [lookup_action_function]"
   
 and check_table_actions prog ctx all valids typ (actions : Table.action_ref list) =
-  let open Table in
   List.fold_left actions ~init:String.Map.empty
     ~f:(fun acc act ->
       let str, typ = check_table_action prog ctx all valids typ act in
-      String.Map.add_exn acc str typ
+      String.Map.add_exn acc ~key:str ~data:typ
     )
 
 and check_matches prog ctx all (typ : Type.t) matches =
@@ -1326,8 +1311,8 @@ and check_matches prog ctx all (typ : Type.t) matches =
     )
   
 and check_entries prog ctx all valids typ entries =
-  List.fold_left entries ~init:typ
-    ~f:(fun acc entry ->
+  List.iter entries
+    ~f:(fun entry ->
       let open Table in
       match entry with
       | (_, {annotations=_; matches=matches; action = action} ) ->
@@ -1336,10 +1321,12 @@ and check_entries prog ctx all valids typ entries =
          match lookup_action_function prog ctx act_name with
          | None -> failwith ("ERROR :: Could not find " ^ act_name ^ " in context " ^ snd (name ctx))
          | Some (_,Action a) ->
-            check_matches prog ctx all typ matches
-            |> check_block prog ctx all valids a.body
+            ignore(
+                check_matches prog ctx all typ matches
+                |> check_block prog ctx all valids a.body
+              )
          | _ -> failwith "ERROR :: Expected [lookup_action_function] to return a function declaration"
-    )
+    ) ; typ
 
 and find_and_check_custom prog ctx all customs custom_name typ =
   let default_action =
@@ -1347,7 +1334,7 @@ and find_and_check_custom prog ctx all customs custom_name typ =
       ~f:(fun acc prop ->
         let open Table in
         match acc, prop with
-        | Some x,_ -> acc
+        | Some _,_ -> acc
         | None, Custom c->
            if snd c.name = custom_name then
              Some c.value
@@ -1360,11 +1347,10 @@ and find_and_check_custom prog ctx all customs custom_name typ =
   | Some act_exp ->
      check_expr prog ctx all [] act_exp typ
 
-and check_table (info : Petr4.Info.t) prog ctx all typ tbl =
-  let open Table in
-  let (valids,all_keys), actions, entries, customs = (* TODO :: Figure out customs *)
+and check_table (_ : Petr4.Info.t) prog ctx all typ tbl =
+  let (valids,all_keys), actions, _(*entries*), customs = (* TODO :: Figure out customs *)
     unpack_table tbl in
-  List.iter all_keys ~f:(check_table_key prog all valids typ);
+  List.iter all_keys ~f:(check_table_key all valids typ);
   (* Printf.printf "valids : ";  List.iter valids ~f:(fun f -> Printf.printf "%s " f); Printf.printf "\n%!"; *)
   let acts_typ_map = check_table_actions prog ctx all valids typ actions in
   let def_typ = 
@@ -1407,41 +1393,40 @@ and get_action_run_table_name switch : Expression.t option =
   | _ -> None
 
 
-and check_action_run_case prog ctx all acts_typ_map def_typ case typ =
+and check_action_run_case prog ctx all acts_typ_map def_typ case =
   let open Statement in
   match case with
   | (info,FallThrough _) ->
      failwith ("Error :: all cases must be explicit " ^ Petr4.Info.to_string info)
-  | (info, Action {label; code}) ->
+  | (_, Action {label; code}) ->
      match label with
      | (_, Default) ->
         check_block prog ctx all [] code def_typ
-     | (_, Name (info, name)) -> 
+     | (_, Name (_, name)) -> 
         Map.find_exn acts_typ_map name
         |> check_block prog ctx all [] code
        
-and check_action_run_cases prog ctx all acts_typ_map def_typ cases typ =
+and check_action_run_cases prog ctx all acts_typ_map def_typ cases =
   List.fold_left cases ~init:Type.epsilon ~f:(fun acc_typ case ->
-      check_action_run_case prog ctx all acts_typ_map def_typ case typ
+      check_action_run_case prog ctx all acts_typ_map def_typ case
+      |> Type.union acc_typ
     )
        
 and check_action_run prog ctx all tbl_to_apply cases typ : Type.t =
   let open Expression in
   match tbl_to_apply with
-  | (tbl_call_info, Name (name_info,tbl_name)) ->
+  | (_, Name (name_info,tbl_name)) ->
      begin
      match lookup_table prog ctx tbl_name with
      | None -> failwith ("Error :: Could not find table [" ^ tbl_name ^ "], invoked from " ^ Petr4.Info.to_string name_info)
      | Some tbl_props ->
         let acts_typ_map, def_typ = check_table name_info prog ctx all typ tbl_props in
-        typ
-        |> check_action_run_cases prog ctx all acts_typ_map def_typ cases
+        check_action_run_cases prog ctx all acts_typ_map def_typ cases
         |> Type.union def_typ
      end
   | (tbl_call_info,_) -> failwith ("Error :: Don't know which table to call at " ^ Petr4.Info.to_string tbl_call_info )
 
-and check_dispatch stmt_or_expr prog ctx all valids info func ?act:(act="") typ =
-  let open Statement in
+and check_dispatch ?act:(act="") stmt_or_expr prog ctx all valids info func typ : Type.t =
   let open Expression in
   let casestr = match stmt_or_expr with | `Stmt -> "statement" | `Expr -> "expression" | _ -> "? ???? ? ? ?" in
   match func with
@@ -1456,7 +1441,6 @@ and check_dispatch stmt_or_expr prog ctx all valids info func ?act:(act="") typ 
                  match lookup_table prog ctx (snd object_name) with
                  | None -> (* Its not a table.. is it a locally defined control?*)
                     let open Declaration in
-                    let open TopDeclaration in
                     begin
                       match lookup_control_instance prog ctx (snd object_name) with
                       | ((_, Control c) as ctrl_ctx)  ->
@@ -1535,19 +1519,20 @@ and check_dispatch stmt_or_expr prog ctx all valids info func ?act:(act="") typ 
    
   
        
-and check_control_stmt prog ctx all valids (stmt : Statement.t) ?act:(act="") typ : Type.t=
+and check_control_stmt ?act:(act="") prog ctx all valids (stmt : Statement.t) typ : Type.t=
   let open Statement in
   let (info, s) = stmt in
   (* Printf.printf "%s , Checking control stmt with |typ| = %d\n%!" (Petr4.Info.to_string info) (Type.size typ); *)
   match s with
   | MethodCall m ->
-     ignore (check_args prog ctx all valids m.args typ);
-     check_dispatch `Stmt prog ctx all valids info m.func typ ~act
+     check_args prog ctx all valids m.args typ
+     |> check_dispatch `Stmt prog ctx all valids info m.func ~act
   | Assignment a ->
      typ
      |> check_control_expr prog ctx all valids a.rhs ~act
      |> check_control_expr prog ctx all valids a.lhs ~act
   | DirectApplication {typ=cp_typ; args=args} ->
+     let typ = check_args prog ctx all valids args typ in
      let lookfor typestr =
        let control = lookup_control_instance prog ctx typestr in
        check_control prog all control typ
@@ -1577,7 +1562,7 @@ and check_control_stmt prog ctx all valids (stmt : Statement.t) ?act:(act="") ty
         |> check_control_expr prog ctx all valids e ~act
         |> check_switch_cases prog ctx all valids cs ~act
      end    
-  | DeclarationStatement decl ->
+  | DeclarationStatement _ ->
      failwith ("Error :: unsupported declaration control statement at " ^ Petr4.Info.to_string info)
   | Exit -> typ
   | EmptyStatement -> typ
@@ -1595,7 +1580,7 @@ and get_header_type_name prsr_ctx : string =
   let open Declaration in
   let open Parameter in
   match prsr_ctx with
-  | (info, Parser p) ->
+  | (_, Parser p) ->
      begin
      match p.params with
      | _::(_,hdrs)::_ ->
@@ -1627,7 +1612,6 @@ and check_pipelines prog all pipeline_names typ : Type.t =
       )
        
 and check_prog (prog : program) : Type.t  =
-  let open Option in
   (*Lookup parser name, lookup control name(s) and check them in
      sequence, according to package named "main"*)
   let penv = parser_env prog in

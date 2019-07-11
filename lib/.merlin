@@ -102,4 +102,4 @@ S /home/ericthewry/research/p4check/_opam/lib/yojson
 S /home/ericthewry/research/p4check/_opam/lib/zarith
 S .
 FLG -ppx '/home/ericthewry/research/p4check/_build/default/.ppx/f716dd884a0e66a50e1581b2bdc3b58e/ppx.exe --as-ppx --cookie '\''library-name="p4check"'\'''
-FLG -open P4check__ -w -40
+FLG -open P4check__ -w @a-4-29-40-41-42-44-45-48-58-59-60-40 -strict-sequence -strict-formats -short-paths -keep-locs
