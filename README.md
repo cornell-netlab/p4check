@@ -48,7 +48,7 @@ The following modified example should complain about an invalid `ipv4` instance
 ./p4check examples/basic_ipv4bug.p4 -I examples/includes
 ```
 
-### P4 Warnings
+### P4Check Warnings
 
 The following command produces a warning that should be used to guide implementation of the controller
 
