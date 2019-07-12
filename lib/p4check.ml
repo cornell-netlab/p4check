@@ -24,6 +24,7 @@ open Core
  * + Will Fail on [ErrorMembers]
  * + Fails on [TopLevel] expressions
  * + Skips over [extern]s
+ * + No rules for [update_checksum], it always passes
  * + Makes a strong assumption about behavior of [stack.push_front(e)] method.
       - it finds the maximum valid header index [i] and adds [stack[i+1]] to the type
       - The correct way to handle this is to traverse the type and increment every 
@@ -342,24 +343,17 @@ let lookup_parser_state prog pname statename =
 
 let lookup_action_function (prog : program) (decl : Declaration.t) (string:string) : Declaration.t option  =
   let open Declaration in
-  (* Printf.printf "\nCALLED LOOKUP_ACTION_FUNCTION\n";
-   * Printf.printf "[lookup_action_function] Looking for %s in %s\n" (string) (snd (name decl)); *)
   match snd decl with
   | Control c ->
      begin
-       (* Printf.printf "[lookup_action_function] checking %d local declarations\n" (List.length c.locals); *)
        let local_lookup = List.fold c.locals ~init:None
                             ~f:(fun func_opt decl' ->
-                              (* Printf.printf "[lookup_action_function] checking %s\n" (snd (name decl')); *)
                               match func_opt, decl' with
                               | Some _, _ -> func_opt
                               | None, ((_,Action a) as ainf) ->
-                                 (* Printf.printf "~~ Checking whether %s = %s ~~ \n" (snd a.name) (string); *)
                                  if snd a.name = string then
-                                   (* let () = Printf.printf "\tit does \n" in *)
                                    Some ainf
                                  else
-                                   (* let () = Printf.printf "\tit does not\n" in *)
                                    func_opt
                               | _, _ -> func_opt)
        in
@@ -749,8 +743,6 @@ let rec check_parser_stmt prog (ctx : Declaration.t) (all : HSet.t) (penv : stri
   (* Printf.printf "Checking parser statement at %s \n%!" (Petr4.Info.to_string (fst stmt)); *)
   match snd stmt with
   | MethodCall {func=func; type_args=_; args=args} ->
-     (* Do we need to do something with type_args? *)
-     (* Printf.printf "Its a Method Call\n%!"; *)
      ignore(check_args prog ctx all []  args typ);
      begin
        match func with
@@ -873,9 +865,6 @@ and check_args prog ctx all (valids : string list) (args : Argument.t list) (typ
 (* [valids] is the list of valid bits in a table application*)
 and check_expr prog ctx all (valids : string list) expr ?act:(act="") typ =
   let open Expression in
-  (* Printf.printf "Checking expr with valids: ";
-   * List.iter valids ~f:(Printf.printf "%s ");
-   * Printf.printf "\n%!"; *)
   let do_valid_check info name typ =
     if not (check_valid all typ name) then
       (* let () = Printf.printf "-----invalid\n%!" in *)
@@ -1028,7 +1017,6 @@ and check_parser_case (prog : program) ctx all (penv : string option * (int * in
     Some Type.empty
   else
     let (_, next_hop) =  lookup_parser_state prog (snd (Declaration.name ctx)) (snd c.next) in
-    Printf.printf "Hopping to %s\n%!" (snd c.next);
     check_parser_state prog ctx all penv next_hop typ 
     
     
@@ -1082,10 +1070,6 @@ and check_parser_state (prog : program) (ctx : Declaration.t) (all_hdrs : HSet.t
   let open Parser in
   let open Option in
   let (_, s) = state in
-  (* TODO :  FIGURE OUT PARSER TERMINATION -- should be the same solution to recirculate *)
-  (* Printf.printf "Checking Parser %s at state %s\n%!"
-   *   (snd (Declaration.name ctx))
-   *   (snd (snd state).name); *)
   check_parser_statements prog ctx all_hdrs penv s.statements typ
   >>= check_transition prog ctx all_hdrs penv s.transition
 
@@ -1149,8 +1133,14 @@ and is_validity_expr expr : bool * (string option) =
             false, None
        | _ -> false, None
      end
+  | (_, ExpressionMember {expr=(_,expr); name=name}) ->
+     if snd name = "isValid"
+     then
+       true, fst (acc_members ~name:false expr)
+     else
+       false, None
   | _ -> false, None
-       
+                
 and partition_typ_expr typ expr =
   let open Expression in
   match expr with
@@ -1175,15 +1165,16 @@ and partition_typ_expr typ expr =
           (typ12, typ11)
        | (_,_) -> (typ, typ)
      end
-  | (_, FunctionCall {func=func; type_args=[]; args=[]}) ->
+  | (_, FunctionCall {func=_; type_args=[]; args=[]}) ->
+     (* Printf.printf "  FUNCTION CALL\n"; *)
      begin
-       match is_validity_expr func with
-       | (true, Some hdrname) -> 
+       match is_validity_expr expr with
+       | (true, Some hdrname) ->
           Type.(restrict typ hdrname, neg_restrict typ hdrname)
        | (true, None) ->
           failwith "Error :: Could not extract header for isValid() call"
        | (false, _) ->
-          (* TODO :: partition on called functions *)
+          (* Printf.printf "--- Couldn't find the Validity Expression---"; *)
           typ, typ
      end
   | (_, _) -> (typ, typ)
@@ -1473,7 +1464,6 @@ and check_dispatch ?act:(act="") stmt_or_expr prog ctx all valids info func typ 
             | Some hdrstr -> Type.(remove typ hdrstr)
           end
        | _, "emit" | _,"count" | _,"execute_meter" | _,"read" | _,"lookahead" ->
-          (* TODO -- something about externs?*)
           (* let mkblue str = ANSITerminal.sprintf [ANSITerminal.blue] str in *)
           (* Printf.eprintf "%s, %s : unknown string %s\n"
            *   (Petr4.Info.to_string info)
@@ -1511,7 +1501,7 @@ and check_dispatch ?act:(act="") stmt_or_expr prog ctx all valids info func typ 
        | Some (_,Action a) -> check_block prog ctx all valids a.body typ
        | Some (info,_) -> failwith ("ERROR :: Expected to find Action [" ^ snd n ^ "], but it was something else at " ^ Petr4.Info.to_string info )
        | None -> 
-          Printf.printf "WARNING:: Unknown name [%s] when checking control statement at %s\n%!" (snd n) (Petr4.Info.to_string info);
+          (* Printf.printf "WARNING:: Unknown name [%s] when checking control statement at %s\n%!" (snd n) (Petr4.Info.to_string info); *)
           typ
      end
   | _ -> failwith ("ERROR : method call must be to a member or a name at " ^ Petr4.Info.to_string info)
@@ -1522,11 +1512,18 @@ and check_dispatch ?act:(act="") stmt_or_expr prog ctx all valids info func typ 
 and check_control_stmt ?act:(act="") prog ctx all valids (stmt : Statement.t) typ : Type.t=
   let open Statement in
   let (info, s) = stmt in
-  (* Printf.printf "%s , Checking control stmt with |typ| = %d\n%!" (Petr4.Info.to_string info) (Type.size typ); *)
+  (* Printf.printf "%s , Checking control stmt with |typ| = %d%!" (Petr4.Info.to_string info) (Type.size typ);
+   * Type.format Format.std_formatter typ;
+   * Format.printf "\n@]%!\n";
+   * Printf.printf "\n"; *)
   match s with
   | MethodCall m ->
-     check_args prog ctx all valids m.args typ
-     |> check_dispatch `Stmt prog ctx all valids info m.func ~act
+     begin match snd m.func with
+     | Name (_, "update_checksum") -> typ
+     | _ -> 
+        check_args prog ctx all valids m.args typ
+        |> check_dispatch `Stmt prog ctx all valids info m.func ~act
+     end
   | Assignment a ->
      typ
      |> check_control_expr prog ctx all valids a.rhs ~act
@@ -1603,7 +1600,7 @@ and check_pipelines prog all pipeline_names typ : Type.t =
     ~f:(fun typ name ->
         Printf.printf ">>>>>>checking stage %s\n%!" name;
         let stage = lookup_control_state prog name in
-        Printf.printf "Checking %s with type of size %d\n%!" name (Type.size typ);
+        (* Printf.printf "Checking %s with type of size %d\n%!" name (Type.size typ); *)
         (* Type.format Format.std_formatter typ;
            * Format.printf "@]%!\n"; Printf.printf "\n"; *)
         let outtyp = check_control prog all stage typ in

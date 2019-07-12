@@ -26,9 +26,7 @@ error {
     NoMatch,           /// 'select' expression has no matches.
     StackOutOfBounds,  /// Reference to invalid element of a header stack.
     HeaderTooShort,    /// Extracting too many bits into a varbit field.
-    ParserTimeout,     /// Parser execution time limit exceeded.
-    ParserInvalidArgument  /// Parser operation was called with a value
-                           /// not supported by the implementation.
+    ParserTimeout      /// Parser execution time limit exceeded.
 }
 
 extern packet_in {

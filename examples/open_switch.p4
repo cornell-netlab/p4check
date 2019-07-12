@@ -945,7 +945,7 @@ struct headers {
     @name(".vxlan_gpe_int_header") 
     vxlan_gpe_int_header_t                  vxlan_gpe_int_header;
     @name(".int_val") 
-    int_value_t[2]                          int_val;
+    int_value_t[24]                         int_val;
     @name(".mpls") 
     mpls_t[3]                               mpls;
     @name(".vlan_tag_") 
@@ -2435,11 +2435,11 @@ control process_int_insertion(inout headers hdr, inout metadata meta, inout stan
         switch (int_insert.apply().action_run) {
             int_transit: {
                 if (meta.int_metadata.insert_cnt != 8w0) {
-                    int_inst_0003.apply();
-                    int_inst_0407.apply();
-                    int_inst_0811.apply();
-                    int_inst_1215.apply();
-                    int_bos.apply();
+                     int_inst_0003.apply();
+                     int_inst_0407.apply();
+                     int_inst_0811.apply();
+                      int_inst_1215.apply();
+                      int_bos.apply();
                 }
                 int_meta_header_update.apply();
             }
@@ -3447,7 +3447,6 @@ control egress(inout headers hdr, inout metadata meta, inout standard_metadata_t
             else {
                 process_replication_0.apply(hdr, meta, standard_metadata);
             }
-            
             switch (egress_port_mapping.apply().action_run) {
                 egress_port_type_normal: {
                     if (standard_metadata.instance_type == 32w0 || standard_metadata.instance_type == 32w5) {
@@ -3462,8 +3461,9 @@ control egress(inout headers hdr, inout metadata meta, inout standard_metadata_t
                     process_int_insertion_0.apply(hdr, meta, standard_metadata);
                     process_egress_nat_0.apply(hdr, meta, standard_metadata);
                     process_egress_bd_stats_0.apply(hdr, meta, standard_metadata);
-               }
+                }
             }
+
             process_egress_l4port_0.apply(hdr, meta, standard_metadata);
             process_tunnel_encap_0.apply(hdr, meta, standard_metadata);
             if (meta.egress_metadata.port_type == 2w0) {
@@ -3930,28 +3930,28 @@ control process_int_endpoint(inout headers hdr, inout metadata meta, inout stand
         hdr.int_header.setInvalid();
         hdr.int_val[0].setInvalid();
         hdr.int_val[1].setInvalid();
-        // hdr.int_val[2].setInvalid();
-        // hdr.int_val[3].setInvalid();
-        // hdr.int_val[4].setInvalid();
-        // hdr.int_val[5].setInvalid();
-        // hdr.int_val[6].setInvalid();
-        // hdr.int_val[7].setInvalid();
-        // hdr.int_val[8].setInvalid();
-        // hdr.int_val[9].setInvalid();
-        // hdr.int_val[10].setInvalid();
-        // hdr.int_val[11].setInvalid();
-        // hdr.int_val[12].setInvalid();
-        // hdr.int_val[13].setInvalid();
-        // hdr.int_val[14].setInvalid();
-        // hdr.int_val[15].setInvalid();
-        // hdr.int_val[16].setInvalid();
-        // hdr.int_val[17].setInvalid();
-        // hdr.int_val[18].setInvalid();
-        // hdr.int_val[19].setInvalid();
-        // hdr.int_val[20].setInvalid();
-        // hdr.int_val[21].setInvalid();
-        // hdr.int_val[22].setInvalid();
-        // hdr.int_val[23].setInvalid();
+        hdr.int_val[2].setInvalid();
+        hdr.int_val[3].setInvalid();
+        hdr.int_val[4].setInvalid();
+        hdr.int_val[5].setInvalid();
+        hdr.int_val[6].setInvalid();
+        hdr.int_val[7].setInvalid();
+        hdr.int_val[8].setInvalid();
+        hdr.int_val[9].setInvalid();
+        hdr.int_val[10].setInvalid();
+        hdr.int_val[11].setInvalid();
+        hdr.int_val[12].setInvalid();
+        hdr.int_val[13].setInvalid();
+        hdr.int_val[14].setInvalid();
+        hdr.int_val[15].setInvalid();
+        hdr.int_val[16].setInvalid();
+        hdr.int_val[17].setInvalid();
+        hdr.int_val[18].setInvalid();
+        hdr.int_val[19].setInvalid();
+        hdr.int_val[20].setInvalid();
+        hdr.int_val[21].setInvalid();
+        hdr.int_val[22].setInvalid();
+        hdr.int_val[23].setInvalid();
     }
     @name(".int_sink_gpe") action int_sink_gpe(bit<32> mirror_id) {
         meta.int_metadata.insert_byte_cnt = meta.int_metadata.gpe_int_hdr_len << 2;
