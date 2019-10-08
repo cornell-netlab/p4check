@@ -38,7 +38,8 @@ let spec =
   let open Command.Spec in
   empty
   +> flag "-I" (listed string) ~doc:"<dir> Add directory to include search path"
-  +> flag "-v" no_arg ~doc:"verbose mode"
+  +> flag "-v" no_arg ~doc:"verbose mode, print the size of the types \
+                            at each control statement"
   +> anon ("p4file" %:string)
     
 let command =
@@ -53,7 +54,7 @@ let command =
             let () = Format.set_margin 160 in 
             let () = Format.printf "@[" in
             (* let () = verbose (lazy (Format.printf ">>> Checking program: %s@\n%!" fn)) in *) 
-            ignore(check_prog prog);
+            ignore(check_prog prog verbose_flag);
             Printf.printf "Done!\n%!"
           end
        | `Error (info, Lexer.Error s) -> 

@@ -16,17 +16,18 @@ dune external-lib-deps --missing @all
 For example `opam install core`. 
 
 **N.B.** To install `petr4`, follow the instructions
-[here](https://github.com/cornell-netlab/petr4).
+[here](https://github.com/cornell-netlab/petr4). However, you must run
+`git checkout 0.1.1` first, so that you build the most recent release
+version and not the development version.
 
 + Now you can build by running
+
 ```
-dune build bin/main.exe
+make
 ```
-which will produce an executable in `_build/default/bin/main.exe`. It may be convenient to run
-```
-cp _build/default/bin/main.exe ./p4check
-```
-after building
+
+which will produce an executable in `./p4check`. You may need to run
+`chmod +x ./p4check` to provide it with executable permissions.
 
 ## Examples
 
@@ -64,5 +65,11 @@ implementation. The following is a cross-compiled version of
 Networks' `p4_14_to_p4_16` compiler.
 
 ```
-./p4check ./examples/open_switch.p4i
+./p4check ./examples/open_switch.p4
+```
+
+If you want to observe the massive size of the types as the program is processed, run
+
+```
+./p4check -v ./examples/open_switch.p4
 ```
