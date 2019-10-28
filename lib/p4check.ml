@@ -743,10 +743,8 @@ let stack_size prog typstr : int option =
     )
   
 let rec find_available_index ?start:(start=0) prog (all : HSet.t) typ typstr =
-  (* Printf.printf "Finding smallest available index for %s, currently on %d\n%!" typstr start; *)
   let typstr' = typstr ^ "[" ^ Int.to_string start ^ "]" in
   if HSet.mem all typstr' && Type.(valid typ typstr') then
-    (* let () = Printf.printf "%s is valid in type\n%!" typstr' in *)
     find_available_index ~start:(start + 1) prog all typ typstr
   else
     let open Option in
@@ -783,7 +781,6 @@ let rec check_parser_stmt (verbose_flag : bool ref) prog (ctx : Declaration.t) (
                       | ExpressionMember {expr; name=(_,curr)} ->
                          begin
                            let wrk_exp = if curr = "next" then
-                                           (* let () = Printf.printf "Processing stack\n%!"in *)
                                            expr
                                          else value
                            in
@@ -793,8 +790,10 @@ let rec check_parser_stmt (verbose_flag : bool ref) prog (ctx : Declaration.t) (
                            | Some typstr ->
                               if curr = "next" then
                                 match find_available_index prog all typ typstr with
-                                | None -> (*no available index for the header*)
-                                  None
+                                | None ->
+                                   None
+                                   (* failwith ("ERROR :: no available index for  "
+                                    *           ^ Petr4.Info.to_string (fst wrk_exp)) *)
                                 | Some idx ->
                                    let typstr_idx = typstr ^ "[" ^ Int.to_string idx ^ "]" in
                                    let penv' = (Some typstr_idx, snd penv) in
@@ -1063,7 +1062,6 @@ and check_transition (verbose_flag : bool ref) prog ctx (all : HSet.t) (penv : s
      * Type.format Format.std_formatter typ;
      * Format.printf "@]%!\n";
      * Printf.printf "\n"; *)
-
     let open Parser in
     match trans with
     | (_, Direct {next=(_,n)}) -> 
@@ -1074,6 +1072,7 @@ and check_transition (verbose_flag : bool ref) prog ctx (all : HSet.t) (penv : s
        else
          begin 
            let (_, next_hop) = lookup_parser_state prog (snd (Declaration.name ctx)) n in
+           (* Printf.printf "Checking single parser state %s \n%!" n; *)
            check_parser_state verbose_flag prog ctx all penv next_hop typ
          end
     | (_, Select {exprs=es; cases=cs}) ->
