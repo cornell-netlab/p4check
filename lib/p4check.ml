@@ -123,7 +123,7 @@ end = struct
   let real_epsilon = U.singleton (CH.get (C.empty))
   let epsilon = real_epsilon |> UH.get
 
-  let header h = UH.get (U.singleton (CH.get (C.singleton (H.get h))))
+  let header h = UH.get (U.singleton (CH.get (C.singleton (H.get (String.strip h)))))
 
   let real_concat t1 t2 =
     U.fold t1 ~init:U.empty ~f:(fun acc c1 ->
@@ -668,7 +668,22 @@ let check_valid all typ hdr =
   (* let () = Printf.printf "Headers: ";
    *          List.iter (HSet.to_list all) ~f:(fun h -> Printf.printf "%s " h);
    *          Printf.printf "\n%!" in *)
-  Type.valid typ hdr || not (HSet.mem all hdr)
+  if Type.valid typ hdr then
+    begin
+      (* Printf.printf "VALID\n%!"; *)
+      true
+    end
+  else if not (HSet.mem all hdr) then
+    begin
+      (* Printf.printf "VALID BECAUSE NOT A HEADER\n%!"; *)
+      true
+    end
+  else
+    begin
+      (* Printf.printf "INVALID\n%!"; *)
+      false
+    end
+
 
 let warning_str : string=
   let open ANSITerminal in
@@ -728,10 +743,8 @@ let stack_size prog typstr : int option =
     )
 
 let rec find_available_index ?start:(start=0) prog (all : HSet.t) typ typstr =
-  (* Printf.printf "Finding smallest available index for %s, currently on %d\n%!" typstr start; *)
   let typstr' = typstr ^ "[" ^ Int.to_string start ^ "]" in
   if HSet.mem all typstr' && Type.(valid typ typstr') then
-    (* let () = Printf.printf "%s is valid in type\n%!" typstr' in *)
     find_available_index ~start:(start + 1) prog all typ typstr
   else
     let open Option in
@@ -744,7 +757,7 @@ let rec find_available_index ?start:(start=0) prog (all : HSet.t) typ typstr =
 let rec check_parser_stmt (verbose_flag : bool ref) prog (ctx : Declaration.t) (all : HSet.t) (penv : string option * (int * int) HMap.t) stmt typ  =
   let open Statement in
   let open Expression in
-  (* Format.printf "Checking Parser Statement at %s\n at type type:\n\t" (Petr4.Info.to_string (fst stmt));
+  (* Format.printf "Checking Parser Statement at %s\n at type:\n\t" (Petr4.Info.to_string (fst stmt));
    * Type.format Format.std_formatter typ;
    * Format.printf "@]%!\n";
    * Printf.printf "\n"; *)
@@ -792,12 +805,43 @@ let rec check_parser_stmt (verbose_flag : bool ref) prog (ctx : Declaration.t) (
                     end
                   | ArrayAccess {array; index} ->
                     begin
-                      match fst (acc_members ~name:false (snd array)), index with
-                      | None, _-> failwith ("ERROR :: couldn't find member from expression at " ^ (Petr4.Info.to_string (fst array)))
-                      | Some mem, (_, Int (_, i)) ->
-                        let typstr = mem ^ "[" ^ (Bigint.to_string i.value) ^ "]" in
-                        Some (penv, Type.add typ typstr)
-                      | Some _, (info,_) -> failwith ("Error :: Array access not an integer literal at " ^ Petr4.Info.to_string info)
+                      match snd value with
+                      | ExpressionMember {expr; name=(_,curr)} ->
+                        begin
+                          let wrk_exp = if curr = "next" then
+                              expr
+                            else value
+                          in
+                          match fst (acc_members ~name:false (snd wrk_exp)) with
+                          | None -> failwith ("ERROR :: could not extract member from  "
+                                              ^ Petr4.Info.to_string (fst wrk_exp))
+                          | Some typstr ->
+                            if curr = "next" then
+                              match find_available_index prog all typ typstr with
+                              | None ->
+                                None
+                              (* failwith ("ERROR :: no available index for  "
+                               *           ^ Petr4.Info.to_string (fst wrk_exp)) *)
+                              | Some idx ->
+                                let typstr_idx = typstr ^ "[" ^ Int.to_string idx ^ "]" in
+                                let penv' = (Some typstr_idx, snd penv) in
+                                let typ' = Type.(add typ typstr_idx) in
+                                Some (penv', typ')
+                            else
+                              let penv' = (Some typstr, snd penv) in
+                              let typ' = Type.(add typ typstr) in
+                              Some (penv', typ')
+                        end
+                      | ArrayAccess {array; index} ->
+                        begin
+                          match fst (acc_members ~name:false (snd array)), index with
+                          | None, _-> failwith ("ERROR :: couldn't find member from expression at " ^ (Petr4.Info.to_string (fst array)))
+                          | Some mem, (_, Int (_, i)) ->
+                            let typstr = mem ^ "[" ^ (Bigint.to_string i.value) ^ "]" in
+                            Some (penv, Type.add typ typstr)
+                          | Some _, (info,_) -> failwith ("Error :: Array access not an integer literal at " ^ Petr4.Info.to_string info)
+                        end
+                      | _ -> failwith ("ERROR :: unrecognized header at " ^ Petr4.Info.to_string info)
                     end
                   | _ -> failwith ("ERROR :: unrecognized header at " ^ Petr4.Info.to_string info)
                 end
@@ -858,7 +902,14 @@ and check_args (verbose_flag : bool ref) prog ctx all (valids : string list) (ar
 and check_expr (verbose_flag : bool ref) prog ctx all (valids : string list) expr ?act:(act="") typ =
   let open Expression in
   let do_valid_check info name typ =
-    if check_valid all typ name then typ else
+    (* Format.printf "Checking Validity of %s\n in : " name;
+     * Type.format Format.std_formatter typ;
+     * Format.printf "@]%!\n";
+     * Printf.printf "\n"; *)
+    if check_valid all typ name then
+      (* let () = Printf.printf "++++++++++++valid\n%!" in *)
+      typ
+    else
       (* let () = Printf.printf "-----invalid\n%!" in *)
     if List.mem valids name ~equal:(=) then
       begin
@@ -925,6 +976,7 @@ and check_expr (verbose_flag : bool ref) prog ctx all (valids : string list) exp
     typ
   | ErrorMember _ -> failwith "ERROR (UnsupportedCommand) :: Cannot handle [ErrorMember]s"
   | ExpressionMember {expr=(info,e); name=n} ->
+    (* let () = Printf.printf "CHECKING EXPRESSION MEMBER!\n%!" in *)
     if snd n = "action_run" then
       failwith ("ERROR (UnsupportedFunctionality) :: [action_run] hit analysis at " ^ (Petr4.Info.to_string info))     else
       begin
@@ -1036,6 +1088,10 @@ and check_cases (verbose_flag : bool ref) prog ctx all (penv : string option * (
 
 and check_transition (verbose_flag : bool ref) prog ctx (all : HSet.t) (penv : string option * (int * int) HMap.t) trans typ : Type.t option =
   begin
+    (* Format.printf "Checking Transition at %s\n at type:\n\t" (Petr4.Info.to_string (fst trans));
+     * Type.format Format.std_formatter typ;
+     * Format.printf "@]%!\n";
+     * Printf.printf "\n"; *)
     let open Parser in
     match trans with
     | (_, Direct {next=(_,n)}) -> 
@@ -1046,6 +1102,7 @@ and check_transition (verbose_flag : bool ref) prog ctx (all : HSet.t) (penv : s
       else
         begin 
           let (_, next_hop) = lookup_parser_state prog (snd (Declaration.name ctx)) n in
+          (* Printf.printf "Checking single parser state %s \n%!" n; *)
           check_parser_state verbose_flag prog ctx all penv next_hop typ
         end
     | (_, Select {exprs=es; cases=cs}) ->
@@ -1059,6 +1116,11 @@ and check_parser_state (verbose_flag : bool ref) (prog : program) (ctx : Declara
   let open Parser in
   let open Option in
   let (_, s) = state in
+  (* Format.printf "Checking Parser State at %s\n at type:\n\t" (Petr4.Info.to_string (fst state));
+   * Type.format Format.std_formatter typ;
+   * Format.printf "@]%!\n";
+   * Printf.printf "\n"; *)
+
   check_parser_statements verbose_flag prog ctx all_hdrs penv s.statements typ
   >>= check_transition verbose_flag prog ctx all_hdrs penv s.transition
 
@@ -1087,14 +1149,26 @@ and check_switch_cases (verbose_flag : bool ref) prog (ctx : Declaration.t) (all
 
 
 and check_conditional_stmt (verbose_flag : bool ref) prog (ctx : Declaration.t) all (valids : string list) cond tru_ctrl fls_opt ?act:(act="") typ  =
+  (* Format.printf "Checking Conditional at %s\n at type:\n\t" (Petr4.Info.to_string (fst cond));
+   * Type.format Format.std_formatter typ;
+   * Format.printf "@]%!\n";
+   * Printf.printf "\n"; *)
   ignore (check_expr verbose_flag prog ctx all [] cond typ);
   let tru_typ, fls_typ = partition_typ_expr typ cond in
+  (* Format.printf "The true branch is checked in type:\n\t";
+   * Type.format Format.std_formatter tru_typ;
+   * Format.printf "@]%!\n";
+   * Printf.printf "\n";
+   * Format.printf "The false branch is checked in type:\n\t";
+   * Type.format Format.std_formatter fls_typ;
+   * Format.printf "@]%!\n";
+   * Printf.printf "\n"; *)
   let tru_typ' =
     if Type.contradiction tru_typ then
       (warn_uninhabited (fst cond) ~msg:"in true branch"; tru_typ)
     else
       check_control_stmt verbose_flag prog ctx all valids tru_ctrl tru_typ ~act
-  in
+  in  
   let fls_typ' =
     match fls_opt with
     | None -> typ
@@ -1494,7 +1568,7 @@ and check_dispatch ?act:(act="") stmt_or_expr verbose_flag prog ctx all valids i
       | Some (_,Action a) -> check_block verbose_flag prog ctx all valids a.body typ
       | Some (info,_) -> failwith ("ERROR :: Expected to find Action [" ^ snd n ^ "], but it was something else at " ^ Petr4.Info.to_string info )
       | None -> 
-        (* Printf.printf "WARNING:: Unknown name [%s] when checking control statement at %s\n%!" (snd n) (Petr4.Info.to_string info); *)
+        Printf.printf "WARNING:: Unknown name [%s] when checking control statement at %s\n%!" (snd n) (Petr4.Info.to_string info);
         typ
     end
   | _ -> failwith ("ERROR : method call must be to a member or a name at " ^ Petr4.Info.to_string info)
@@ -1506,6 +1580,10 @@ and check_control_stmt (verbose_flag : bool ref) ?act:(act="") prog ctx all vali
   let open Statement in
   let (info, s) = stmt in
   let () = if !verbose_flag then Printf.printf "%s : size = %d\n%!" (Petr4.Info.to_string info) (Type.size typ) else () in
+  (* Format.printf "Checking Control Statement at %s\n at type:\n\t" (Petr4.Info.to_string (fst stmt));
+   * Type.format Format.std_formatter typ;
+   * Format.printf "@]%!\n";
+   * Printf.printf "\n"; *)
   match s with
   | MethodCall m ->
     begin match snd m.func with
