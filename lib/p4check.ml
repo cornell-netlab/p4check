@@ -1543,10 +1543,6 @@ and check_dispatch ?act:(act="") stmt_or_expr verbose_flag prog ctx all valids i
             mem ^ "[" ^ Int.to_string idx_to_add ^ "]" |> Type.add typ
 
         end
-      | `Stmt, "recirculate" ->
-        begin
-          failwith "Recirculate Found"
-        end
       | `Expr, "isValid" -> typ
       | _, action ->
         begin
@@ -1567,9 +1563,13 @@ and check_dispatch ?act:(act="") stmt_or_expr verbose_flag prog ctx all valids i
       match lookup_action_function prog ctx (snd n) with
       | Some (_,Action a) -> check_block verbose_flag prog ctx all valids a.body typ
       | Some (info,_) -> failwith ("ERROR :: Expected to find Action [" ^ snd n ^ "], but it was something else at " ^ Petr4.Info.to_string info )
-      | None -> 
-        Printf.printf "WARNING:: Unknown name [%s] when checking control statement at %s\n%!" (snd n) (Petr4.Info.to_string info);
-        typ
+      | None ->
+        begin match snd n with
+          | "recirculate" -> failwith "RECIRCULATE"
+          | _ ->
+            Printf.printf "WARNING:: Unknown name [%s] when checking control statement at %s\n%!" (snd n) (Petr4.Info.to_string info);
+            typ
+        end
     end
   | _ -> failwith ("ERROR : method call must be to a member or a name at " ^ Petr4.Info.to_string info)
 
