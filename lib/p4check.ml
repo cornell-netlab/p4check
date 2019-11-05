@@ -882,19 +882,19 @@ let rec check_parser_stmt (verbose_flag : bool ref) prog (ctx : Declaration.t) (
 
 
 
-and check_arg (verbose_flag : bool ref) prog ctx all (valids : string list) arg recirc typ =
+and check_arg (verbose_flag : bool ref) prog ctx all (valids : string list) arg (typ, recirc) =
   let open Argument in
   match arg with
   | (_, Expression      {value=e}) 
   | (_, KeyValue {key=_; value=e}) ->
-    check_expr verbose_flag prog ctx all valids e typ
-  | _ -> typ
+    check_expr verbose_flag prog ctx all valids e (typ, recirc)
+  | _ -> (typ, recirc)
 
 
 and check_args (verbose_flag : bool ref) prog ctx all (valids : string list) (args : Argument.t list) ((typ, recirc) : Type.t * bool) : Type.t * bool =
   List.fold_left args ~init:typ
     ~f: (fun typ arg ->
-        check_arg verbose_flag prog ctx all valids arg typ
+        check_arg verbose_flag prog ctx all valids arg (typ, recirc)
       )
 
 
@@ -934,7 +934,7 @@ and check_expr (verbose_flag : bool ref) prog ctx all (valids : string list) exp
   let (info,e) = expr in
   match e with
   | True  | False | Int _ | String _  ->
-    typ
+    (typ, recirc)
   | Name (info,name) ->
     begin
       match lookup_action_function prog ctx name with
@@ -944,12 +944,12 @@ and check_expr (verbose_flag : bool ref) prog ctx all (valids : string list) exp
   | TopLevel (info, name) ->
     failwith ("Error :: Toplevel expression" ^ name ^" unsupported at " ^ (Petr4.Info.to_string info))
   | ArrayAccess {array=a; index=i} ->
-    typ
+    (typ, recirc)
     |> check_expr verbose_flag prog ctx all valids i ~act:act
     |> check_expr verbose_flag prog ctx all valids a ~act:act
 
   | BitStringAccess {bits=bs; lo=l; hi=h} ->
-    typ
+    (typ, recirc)
     |> check_expr verbose_flag prog ctx all valids l ~act:act
     |> check_expr verbose_flag prog ctx all valids h ~act:act
     |> check_expr verbose_flag prog ctx all valids bs ~act:act
@@ -963,7 +963,7 @@ and check_expr (verbose_flag : bool ref) prog ctx all (valids : string list) exp
     check_expr verbose_flag prog ctx all valids e typ
 
   | BinaryOp {op=_; args=(e,e')} ->
-    typ
+    (typ, recirc)
     |> check_expr verbose_flag prog ctx all valids e ~act:act
     |> check_expr verbose_flag prog ctx all valids e' ~act:act
 
@@ -973,7 +973,7 @@ and check_expr (verbose_flag : bool ref) prog ctx all (valids : string list) exp
   | TypeMember _ ->
     Printf.printf "Warning :: Do not know how to handle type members at %s... ignoring\n%!"
       (Petr4.Info.to_string info);
-    typ
+    (typ, recirc)
   | ErrorMember _ -> failwith "ERROR (UnsupportedCommand) :: Cannot handle [ErrorMember]s"
   | ExpressionMember {expr=(info,e); name=n} ->
     (* let () = Printf.printf "CHECKING EXPRESSION MEMBER!\n%!" in *)
@@ -1017,31 +1017,31 @@ and check_expr (verbose_flag : bool ref) prog ctx all (valids : string list) exp
     Type.union tru_typ' fls_typ'
 
   | FunctionCall {func=f; type_args=_; args=args} ->
-    check_args verbose_flag prog ctx all valids args typ
+    check_args verbose_flag prog ctx all valids args (typ, recirc)
     |> check_dispatch `Expr verbose_flag ~act prog ctx all [] info f
 
   | NamelessInstantiation {typ=_; args=args} ->
-    check_args verbose_flag prog ctx all valids args typ
+    check_args verbose_flag prog ctx all valids args (typ, recirc)
   | Mask {expr=e; mask=m} ->
-    typ
+    (typ, recirc)
     |> check_expr verbose_flag prog ctx all valids m ~act:act
     |> check_expr verbose_flag prog ctx all valids e ~act:act
   | Range {lo=lo; hi=hi} ->
-    typ
+    (typ, recirc)
     |> check_expr verbose_flag prog ctx all valids lo ~act:act
     |> check_expr verbose_flag prog ctx all valids hi ~act:act
 
 and check_parser_expr (verbose_flag : bool ref) prog ctx all ?act:(act="") (expr:Expression.t) ((typ, recirc) : Type.t * bool) : Type.t * bool =
-  check_expr verbose_flag prog ctx all [] ~act:act expr typ
+  check_expr verbose_flag prog ctx all [] ~act:act expr (typ, recirc)
 
 and check_control_expr (verbose_flag : bool ref) prog ctx all valids ?act:(act="") (expr:Expression.t) ((typ, recirc) : Type.t * bool) : Type.t * bool =
-  check_expr verbose_flag prog ctx all valids ~act:act expr typ
+  check_expr verbose_flag prog ctx all valids ~act:act expr (typ, recirc)
 
 and check_parser_match (verbose_flag : bool ref) prog ctx all (m : Match.t) (typ, recirc) : Type.t * bool =
   match m with
   | (_, Match.Expression e) ->
-    check_parser_expr verbose_flag prog ctx all e.expr typ
-  | _ -> typ
+    check_parser_expr verbose_flag prog ctx all e.expr (typ, recirc)
+  | _ -> (typ, recirc)
 
 and check_parser_matches (verbose_flag : bool ref) (prog : program) ctx all (matches : Match.t list) (typ, recirc) : Type.t * bool =
   List.fold_left matches
@@ -1349,7 +1349,7 @@ and check_table_action verbose_flag prog ctx all valids (typ, recirc) (act : Tab
 and check_table_actions verbose_flag prog ctx all valids (typ, recirc) (actions : Table.action_ref list) =
   List.fold_left actions ~init:String.Map.empty
     ~f:(fun acc act ->
-        let str, typ = check_table_action verbose_flag prog ctx all valids typ act in
+        let str, typ = check_table_action verbose_flag prog ctx all valids (typ, recirc) act in
         String.Map.add_exn acc ~key:str ~data:typ
       )
 
@@ -1376,7 +1376,7 @@ and check_entries (verbose_flag : bool ref) prog ctx all valids (typ, recirc) en
           | None -> failwith ("ERROR :: Could not find " ^ act_name ^ " in context " ^ snd (name ctx))
           | Some (_,Action a) ->
             ignore(
-              check_matches verbose_flag prog ctx all typ matches
+              check_matches verbose_flag prog ctx all (typ, recirc) matches
               |> check_block verbose_flag prog ctx all valids a.body
             )
           | _ -> failwith "ERROR :: Expected [lookup_action_function] to return a function declaration"
@@ -1404,9 +1404,9 @@ and find_and_check_custom (verbose_flag : bool ref) prog ctx all customs custom_
 and check_table (_ : Petr4.Info.t) (verbose_flag : bool ref) prog ctx all (typ, recirc) tbl =
   let (valids,all_keys), actions, _(*entries*), customs = (* TODO :: Figure out customs *)
     unpack_table tbl in
-  List.iter all_keys ~f:(check_table_key all valids typ);
+  List.iter all_keys ~f:(check_table_key all valids (typ,recirc));
   (* Printf.printf "valids : ";  List.iter valids ~f:(fun f -> Printf.printf "%s " f); Printf.printf "\n%!"; *)
-  let acts_typ_map = check_table_actions verbose_flag prog ctx all valids typ actions in
+  let acts_typ_map = check_table_actions verbose_flag prog ctx all valids (typ, recirc) actions in
   let def_typ = 
     find_and_check_custom verbose_flag prog ctx all customs "default_action" typ
   in
@@ -1474,7 +1474,7 @@ and check_action_run (verbose_flag : bool ref) prog ctx all tbl_to_apply cases (
       match lookup_table prog ctx tbl_name with
       | None -> failwith ("Error :: Could not find table [" ^ tbl_name ^ "], invoked from " ^ Petr4.Info.to_string name_info)
       | Some tbl_props ->
-        let acts_typ_map, def_typ = check_table name_info verbose_flag  prog ctx all typ tbl_props in
+        let acts_typ_map, def_typ = check_table name_info verbose_flag  prog ctx all (typ, recirc) tbl_props in
         check_action_run_cases verbose_flag prog ctx all acts_typ_map def_typ cases
         |> Type.union def_typ
     end
@@ -1614,7 +1614,7 @@ and check_control_stmt (verbose_flag : bool ref) ?act:(act="") prog ctx all vali
   | BlockStatement {block=b} ->
     check_block verbose_flag prog ctx all valids b (typ, recirc) ~act
   | Return {expr=None} ->
-    typ
+    (typ, recirc)
   | Return {expr=(Some e)} ->
     check_control_expr verbose_flag prog ctx all valids e (typ, recirc) ~act
   | Switch {expr=e; cases=cs} ->
@@ -1629,8 +1629,8 @@ and check_control_stmt (verbose_flag : bool ref) ?act:(act="") prog ctx all vali
     end    
   | DeclarationStatement _ ->
     failwith ("Error :: unsupported declaration control statement at " ^ Petr4.Info.to_string info)
-  | Exit -> typ
-  | EmptyStatement -> typ
+  | Exit -> (typ, recirc)
+  | EmptyStatement -> (typ, recirc)
 
 
 and check_control (verbose_flag : bool ref) prog all (ctrl : Declaration.t) (typ, recirc) : Type.t * bool =
