@@ -892,14 +892,14 @@ and check_arg (verbose_flag : bool ref) prog ctx all (valids : string list) arg 
 
 
 and check_args (verbose_flag : bool ref) prog ctx all (valids : string list) (args : Argument.t list) ((typ, recirc) : Type.t * bool) : Type.t * bool =
-  List.fold_left args ~init:typ
-    ~f: (fun typ arg ->
+  List.fold_left args ~init:(typ, recirc)
+    ~f: (fun (typ, recirc) arg ->
         check_arg verbose_flag prog ctx all valids arg (typ, recirc)
       )
 
 
 (* [valids] is the list of valid bits in a table application*)
-and check_expr (verbose_flag : bool ref) prog ctx all (valids : string list) expr ?act:(act="") (typ, recirc) =
+and check_expr (verbose_flag : bool ref) prog ctx all (valids : string list) expr ?act:(act="") (typ, recirc) : Type.t * bool =
   let open Expression in
   let do_valid_check info name typ =
     (* Format.printf "Checking Validity of %s\n in : " name;
@@ -1096,9 +1096,9 @@ and check_transition (verbose_flag : bool ref) prog ctx (all : HSet.t) (penv : s
     match trans with
     | (_, Direct {next=(_,n)}) -> 
       if n = "accept" then
-        Some typ
+        Some (typ, recirc)
       else if n = "reject" then
-        Some Type.empty
+        Some (Type.empty, recirc)
       else
         begin 
           let (_, next_hop) = lookup_parser_state prog (snd (Declaration.name ctx)) n in
@@ -1130,15 +1130,15 @@ and check_block (verbose_flag : bool ref) prog ctx (all : HSet.t) (valids : stri
   let open Block in 
   let (_, b) : Block.t = block in
   List.fold_left b.statements
-    ~init:typ
-    ~f:(fun typ' stmt ->
-        check_control_stmt verbose_flag prog ctx all valids stmt typ' ~act
+    ~init:(typ, recirc)
+    ~f:(fun typ_recirc' stmt ->
+        check_control_stmt verbose_flag prog ctx all valids stmt typ_recirc' ~act
       )
 
 and check_switch_case verbose_flag prog (ctx : Declaration.t) (all : HSet.t) (valids : string list) (c : Statement.switch_case) ?act:(act="") (typ, recirc) =
   match c with
   | (_, FallThrough _) ->
-    typ
+    (typ, recirc)
   | (_, Action {label=_; code=block}) ->
     check_block verbose_flag prog ctx all valids block ~act (typ, recirc)
 
@@ -1354,14 +1354,14 @@ and check_table_actions verbose_flag prog ctx all valids (typ, recirc) (actions 
       )
 
 and check_matches (verbose_flag : bool ref)prog ctx all ((typ, recirc) : Type.t * bool) matches =
-  List.fold_left matches ~init:typ
-    ~f:(fun typ' (_, mexpr) ->
+  List.fold_left matches ~init:(typ, recirc)
+    ~f:(fun (typ', recirc') (_, mexpr) ->
         let open Match in
         match mexpr with
         | Expression {expr=expr} ->
-          check_expr verbose_flag prog ctx all [] expr typ'
+          check_expr verbose_flag prog ctx all [] expr (typ', recirc')
         | Default | DontCare ->
-          typ'
+          (typ', recirc')
       )
 
 and check_entries (verbose_flag : bool ref) prog ctx all valids (typ, recirc) entries =
@@ -1382,7 +1382,7 @@ and check_entries (verbose_flag : bool ref) prog ctx all valids (typ, recirc) en
           | _ -> failwith "ERROR :: Expected [lookup_action_function] to return a function declaration"
       ) ; typ
 
-and find_and_check_custom (verbose_flag : bool ref) prog ctx all customs custom_name typ =
+and find_and_check_custom (verbose_flag : bool ref) prog ctx all customs custom_name (typ, recirc) =
   let default_action =
     List.fold customs ~init:None
       ~f:(fun acc prop ->
@@ -1397,9 +1397,9 @@ and find_and_check_custom (verbose_flag : bool ref) prog ctx all customs custom_
         )
   in
   match default_action with
-  | None -> typ
+  | None -> (typ, recirc)
   | Some act_exp ->
-    check_expr verbose_flag prog ctx all [] act_exp typ
+    check_expr verbose_flag prog ctx all [] act_exp (typ, recirc)
 
 and check_table (_ : Petr4.Info.t) (verbose_flag : bool ref) prog ctx all (typ, recirc) tbl =
   let (valids,all_keys), actions, _(*entries*), customs = (* TODO :: Figure out customs *)
@@ -1408,7 +1408,7 @@ and check_table (_ : Petr4.Info.t) (verbose_flag : bool ref) prog ctx all (typ, 
   (* Printf.printf "valids : ";  List.iter valids ~f:(fun f -> Printf.printf "%s " f); Printf.printf "\n%!"; *)
   let acts_typ_map = check_table_actions verbose_flag prog ctx all valids (typ, recirc) actions in
   let def_typ = 
-    find_and_check_custom verbose_flag prog ctx all customs "default_action" typ
+    find_and_check_custom verbose_flag prog ctx all customs "default_action" (typ, recirc)
   in
   (acts_typ_map, def_typ)
 
@@ -1517,14 +1517,14 @@ and check_dispatch ?act:(act="") stmt_or_expr verbose_flag prog ctx all valids i
           | None ->
             failwith "Tried to setValid, but couldn't find a header to envalidate"
           | Some hdrstr ->
-            Type.(add typ hdrstr)
+            (Type.(add typ hdrstr), recirc) (*TODO right recirc value?*)
 
         end
       | `Stmt, "setInvalid" ->
         begin
           match fst (acc_members expr) with
           | None -> failwith "Tried to setInvalid, but couldn't find a header to invalidate"
-          | Some hdrstr -> Type.(remove typ hdrstr)
+          | Some hdrstr -> (Type.(remove typ hdrstr), recirc)
         end
       | _, "emit" | _,"count" | _,"execute_meter" | _,"read" | _,"lookahead" ->
         (* let mkblue str = ANSITerminal.sprintf [ANSITerminal.blue] str in *)
@@ -1532,7 +1532,7 @@ and check_dispatch ?act:(act="") stmt_or_expr verbose_flag prog ctx all valids i
          *   (Petr4.Info.to_string info)
          *   (mkblue "warning")
          *   (mkblue "\"%s\"" (snd mname)); *)
-        typ
+        (typ, recirc)
       | `Stmt, "push_front" | `Stmt, "push_back" ->
         begin
           match fst(acc_members ~name:false expr) with
@@ -1540,10 +1540,10 @@ and check_dispatch ?act:(act="") stmt_or_expr verbose_flag prog ctx all valids i
           | Some mem ->
             let idx_to_add = (find_available_index ~start:0 prog all typ mem) |> Option.value ~default:0 in
             (* TODO ::  FIND ALL AND INCREMENT EACH *)
-            mem ^ "[" ^ Int.to_string idx_to_add ^ "]" |> Type.add typ
+            (mem ^ "[" ^ Int.to_string idx_to_add ^ "]" |> Type.add typ, recirc)
 
         end
-      | `Expr, "isValid" -> typ
+      | `Expr, "isValid" -> (typ, recirc)
       | _, action ->
         begin
           match lookup_action_function prog ctx action with
@@ -1568,7 +1568,7 @@ and check_dispatch ?act:(act="") stmt_or_expr verbose_flag prog ctx all valids i
           | "recirculate" -> failwith "RECIRCULATE"
           | _ ->
             Printf.printf "WARNING:: Unknown name [%s] when checking control statement at %s\n%!" (snd n) (Petr4.Info.to_string info);
-            typ
+            (typ, recirc)
         end
     end
   | _ -> failwith ("ERROR : method call must be to a member or a name at " ^ Petr4.Info.to_string info)
@@ -1587,7 +1587,7 @@ and check_control_stmt (verbose_flag : bool ref) ?act:(act="") prog ctx all vali
   match s with
   | MethodCall m ->
     begin match snd m.func with
-      | Name (_, "update_checksum") -> typ
+      | Name (_, "update_checksum") -> (typ, recirc)
       | _ -> 
         check_args verbose_flag prog ctx all valids m.args typ
         |> check_dispatch `Stmt verbose_flag prog ctx all valids info m.func ~act
@@ -1664,16 +1664,16 @@ and get_header_type_name prsr_ctx : string =
 
 and check_pipelines (verbose_flag : bool ref) prog all pipeline_names (typ, recirc) : Type.t * bool =
   List.fold_left pipeline_names
-    ~init:typ
-    ~f:(fun typ name ->
+    ~init:(typ, recirc)
+    ~f:(fun typ_recirc name ->
         Printf.printf ">>>>>>checking stage %s\n%!" name;
         let stage = lookup_control_state prog name in
         (* Printf.printf "Checking %s with type of size %d\n%!" name (Type.size typ); *)
         (* Type.format Format.std_formatter typ;
            * Format.printf "@]%!\n"; Printf.printf "\n"; *)
-        let outtyp = check_control verbose_flag prog all stage (typ, recirc) in
+        let outtyp_recirc = check_control verbose_flag prog all stage typ_recirc in
         Printf.printf "<<<<<<<< Checked %s!\n%!" name;
-        outtyp
+        outtyp_recirc
       )
 
 and check_prog (prog : program) (verbose_flag : bool ref) : Type.t  =
@@ -1687,5 +1687,6 @@ and check_prog (prog : program) (verbose_flag : bool ref) : Type.t  =
   let all = all_insts prog (get_header_type_name prsr_ctx) in
   match check_parser_state verbose_flag prog prsr_ctx all penv start_state (Type.epsilon, false) with
   | None -> failwith "Parser may not terminate"
-  | Some typ -> check_pipelines verbose_flag prog all pipeline_names (typ, false)
+  (* TODO Should the recirculation handling affect this? *)
+  | Some (typ, recirc) -> fst (check_pipelines verbose_flag prog all pipeline_names (typ, recirc))
 
