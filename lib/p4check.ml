@@ -901,14 +901,14 @@ and check_args (verbose_flag : bool ref) prog ctx all (valids : string list) (ar
 (* [valids] is the list of valid bits in a table application*)
 and check_expr (verbose_flag : bool ref) prog ctx all (valids : string list) expr ?act:(act="") (typ, recirc) : Type.t * bool =
   let open Expression in
-  let do_valid_check info name typ =
+  let do_valid_check info name (typ, recirc) =
     (* Format.printf "Checking Validity of %s\n in : " name;
      * Type.format Format.std_formatter typ;
      * Format.printf "@]%!\n";
      * Printf.printf "\n"; *)
     if check_valid all typ name then
       (* let () = Printf.printf "++++++++++++valid\n%!" in *)
-      typ
+      (typ, recirc)
     else
       (* let () = Printf.printf "-----invalid\n%!" in *)
     if List.mem valids name ~equal:(=) then
@@ -917,18 +917,18 @@ and check_expr (verbose_flag : bool ref) prog ctx all (valids : string list) exp
         if not (Type.contradiction pos_typ) then
           begin
             warn_assume_valid info name act;
-            pos_typ
+            (pos_typ, recirc)
           end
         else
           begin
             assert_valid info name;
-            typ
+            (typ, recirc)
           end
       end
     else
       begin
         assert_valid info  name;
-        typ
+        (typ, recirc)
       end
   in
   let (info,e) = expr in
@@ -1051,11 +1051,11 @@ and check_parser_matches (verbose_flag : bool ref) (prog : program) ctx all (mat
 
 and check_parser_case (verbose_flag : bool ref) (prog : program) ctx all (penv : string option * (int * int) HMap.t) (case:Parser.case) (typ, recirc) : (Type.t * bool) option =
   let (_,c) = case in
-  let typ = check_parser_matches verbose_flag prog ctx all c.matches typ in
+  let (typ, recirc) = check_parser_matches verbose_flag prog ctx all c.matches (typ, recirc) in
   if snd c.next = "accept" then
-    Some typ
+    Some (typ, recirc)
   else if snd c.next = "reject" then
-    Some Type.empty
+    Some (Type.empty, recirc)
   else
     let (_, next_hop) =  lookup_parser_state prog (snd (Declaration.name ctx)) (snd c.next) in
     check_parser_state verbose_flag prog ctx all penv next_hop typ 
@@ -1339,7 +1339,7 @@ and check_table_action verbose_flag prog ctx all valids (typ, recirc) (act : Tab
    * in *)
   let action_body = lookup_action_function prog ctx str in
   match action_body with
-  | Some (_, Action a) ->  (str, check_block verbose_flag prog ctx all valids a.body typ ~act:str)
+  | Some (_, Action a) ->  (str, check_block verbose_flag prog ctx all valids a.body (typ, recirc) ~act:str)
   | None -> failwith ("Error :: Could not find action "
                       ^ str ^ " in control "
                       ^ snd (Declaration.name ctx)
@@ -1349,8 +1349,8 @@ and check_table_action verbose_flag prog ctx all valids (typ, recirc) (act : Tab
 and check_table_actions verbose_flag prog ctx all valids (typ, recirc) (actions : Table.action_ref list) =
   List.fold_left actions ~init:String.Map.empty
     ~f:(fun acc act ->
-        let str, typ = check_table_action verbose_flag prog ctx all valids (typ, recirc) act in
-        String.Map.add_exn acc ~key:str ~data:typ
+        let str, (typ, recirc) = check_table_action verbose_flag prog ctx all valids (typ, recirc) act in
+        String.Map.add_exn acc ~key:str ~data:(typ, recirc)
       )
 
 and check_matches (verbose_flag : bool ref)prog ctx all ((typ, recirc) : Type.t * bool) matches =
@@ -1407,10 +1407,10 @@ and check_table (_ : Petr4.Info.t) (verbose_flag : bool ref) prog ctx all (typ, 
   List.iter all_keys ~f:(check_table_key all valids (typ,recirc));
   (* Printf.printf "valids : ";  List.iter valids ~f:(fun f -> Printf.printf "%s " f); Printf.printf "\n%!"; *)
   let acts_typ_map = check_table_actions verbose_flag prog ctx all valids (typ, recirc) actions in
-  let def_typ = 
+  let (def_typ, def_recirc) = 
     find_and_check_custom verbose_flag prog ctx all customs "default_action" (typ, recirc)
   in
-  (acts_typ_map, def_typ)
+  (acts_typ_map, (def_typ, def_recirc))
 
 
 and get_locals decl =
@@ -1474,9 +1474,9 @@ and check_action_run (verbose_flag : bool ref) prog ctx all tbl_to_apply cases (
       match lookup_table prog ctx tbl_name with
       | None -> failwith ("Error :: Could not find table [" ^ tbl_name ^ "], invoked from " ^ Petr4.Info.to_string name_info)
       | Some tbl_props ->
-        let acts_typ_map, def_typ = check_table name_info verbose_flag  prog ctx all (typ, recirc) tbl_props in
-        check_action_run_cases verbose_flag prog ctx all acts_typ_map def_typ cases
-        |> Type.union def_typ
+        let acts_typ_map, (def_typ, def_recirc) = check_table name_info verbose_flag  prog ctx all (typ, recirc) tbl_props in
+        ((check_action_run_cases verbose_flag prog ctx all acts_typ_map def_typ cases
+          |> Type.union def_typ), def_recirc)
     end
   | (tbl_call_info,_) -> failwith ("Error :: Don't know which table to call at " ^ Petr4.Info.to_string tbl_call_info )
 
@@ -1503,11 +1503,11 @@ and check_dispatch ?act:(act="") stmt_or_expr verbose_flag prog ctx all valids i
                 end
               | Some table ->
                 (* let () = Printf.printf "Checking table %s\n%!" (snd object_name) in *)
-                let acts_typ_map, def_typ = check_table info verbose_flag prog ctx all typ table  in
+                let acts_typ_map, (def_typ, def_recirc) = check_table info verbose_flag prog ctx all (typ, recirc) table  in
                 (* Type.format Format.std_formatter ent_typ;
                  * Format.printf "@]%!\n";
                  * Printf.printf "\n"; *)
-                Type.(union (typ_of_typ_map acts_typ_map) def_typ)
+                (Type.(union (typ_of_typ_map acts_typ_map) def_typ), def_recirc)
             end
           | _ -> failwith "TODO APPLYING SOMETHING OTHER THAN A TABLE OR CONTROL"
         end
@@ -1597,10 +1597,10 @@ and check_control_stmt (verbose_flag : bool ref) ?act:(act="") prog ctx all vali
     |> check_control_expr verbose_flag prog ctx all valids a.rhs ~act
     |> check_control_expr verbose_flag prog ctx all valids a.lhs ~act (* TODO get recirc from output of last application *)
   | DirectApplication {typ=cp_typ; args=args} ->
-    let typ = check_args verbose_flag prog ctx all valids args typ in
+    let (typ, recirc) = check_args verbose_flag prog ctx all valids args (typ, recirc) in
     let lookfor typestr =
       let control = lookup_control_instance prog ctx typestr in
-      check_control verbose_flag prog all control typ
+      check_control verbose_flag prog all control (typ, recirc)
     in
     begin
       match cp_typ with
