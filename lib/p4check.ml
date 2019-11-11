@@ -1143,8 +1143,8 @@ and check_switch_case verbose_flag prog (ctx : Declaration.t) (all : HSet.t) (va
     check_block verbose_flag prog ctx all valids block ~act (typ, recirc)
 
 and check_switch_cases (verbose_flag : bool ref) prog (ctx : Declaration.t) (all : HSet.t) (valids : string list) (cs : Statement.switch_case list) ?act:(act="") (typ, recirc) : Type.t * bool =
-  List.fold_left cs ~init:Type.empty (**should be typ? *)
-    ~f:(fun t c -> check_switch_case verbose_flag prog ctx all valids c typ ~act |> Type.union t)
+  List.fold_left cs ~init:(Type.empty, false) (**should be typ? *)
+    ~f:(fun t c -> check_switch_case verbose_flag prog ctx all valids c (typ, recirc) ~act |> Type.union t)
 
 
 
@@ -1447,7 +1447,7 @@ and get_action_run_table_name switch : Expression.t option =
   | _ -> None
 
 
-and check_action_run_case (verbose_flag : bool ref) prog ctx all acts_typ_map def_typ case =
+and check_action_run_case (verbose_flag : bool ref) prog ctx all acts_typ_map (def_typ, recirc) case =
   let open Statement in
   match case with
   | (info,FallThrough _) ->
@@ -1455,15 +1455,15 @@ and check_action_run_case (verbose_flag : bool ref) prog ctx all acts_typ_map de
   | (_, Action {label; code}) ->
     match label with
     | (_, Default) ->
-      check_block verbose_flag prog ctx all [] code def_typ
+      check_block verbose_flag prog ctx all [] code (def_typ, recirc)
     | (_, Name (_, name)) -> 
-      Map.find_exn acts_typ_map name
+      (Map.find_exn acts_typ_map name, recirc)
       |> check_block verbose_flag prog ctx all [] code
 
-and check_action_run_cases verbose_flag prog ctx all acts_typ_map def_typ cases =
-  List.fold_left cases ~init:Type.epsilon ~f:(fun acc_typ case ->
-      check_action_run_case verbose_flag prog ctx all acts_typ_map def_typ case
-      |> Type.union acc_typ
+and check_action_run_cases verbose_flag prog ctx all acts_typ_map (def_typ, recirc) cases =
+  List.fold_left cases ~init:(Type.epsilon, false) ~f:(fun (acc_typ, acct_recirc) case ->
+      let (t, r) = check_action_run_case verbose_flag prog ctx all acts_typ_map (def_typ, recirc) case
+      in (Type.union acc_typ t, acct_recirc || r) (* TODO right way to compute new recirc? *)
     )
 
 and check_action_run (verbose_flag : bool ref) prog ctx all tbl_to_apply cases (typ, recirc) : Type.t * bool =
