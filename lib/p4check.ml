@@ -644,7 +644,7 @@ let lookup_table prog ctx (tname:string) : Table.property list option =
 
 let typ_of_typ_map m = 
   String.Map.data m |> List.fold_left ~init:Type.empty
-    ~f:(fun acc (typ, recirc) -> Type.union acc typ) (* TODO modified to support acts_typ_map as a map of pairs *)
+    ~f:(fun acc (typ, _) -> Type.union acc typ) (* TODO modified to support acts_typ_map as a map of pairs *)
 
 
 let parser_env (p : program) : string option * (int * int) HMap.t =
@@ -1317,7 +1317,7 @@ and header_inst_of_expr expr =
   | (info, List _) -> error_msg "List" info
   | (info,_) -> error_msg "??" info
 
-and check_table_key all valids (typ, recirc) (key : Table.key) =
+and check_table_key all valids typ (key : Table.key) =
   let open Table in
   let (info, k) = key in
   if fst (is_validity_expr k.key) then
@@ -1409,7 +1409,7 @@ and find_and_check_custom (verbose_flag : bool ref) prog ctx all customs custom_
 and check_table (_ : Petr4.Info.t) (verbose_flag : bool ref) prog ctx all (typ, recirc) tbl =
   let (valids,all_keys), actions, _(*entries*), customs = (* TODO :: Figure out customs *)
     unpack_table tbl in
-  List.iter all_keys ~f:(check_table_key all valids (typ,recirc));
+  List.iter all_keys ~f:(check_table_key all valids typ);
   (* Printf.printf "valids : ";  List.iter valids ~f:(fun f -> Printf.printf "%s " f); Printf.printf "\n%!"; *)
   let acts_typ_map = check_table_actions verbose_flag prog ctx all valids (typ, recirc) actions in
   let (def_typ, def_recirc) = 
@@ -1570,7 +1570,7 @@ and check_dispatch ?act:(act="") stmt_or_expr verbose_flag prog ctx all valids i
       | Some (info,_) -> failwith ("ERROR :: Expected to find Action [" ^ snd n ^ "], but it was something else at " ^ Petr4.Info.to_string info )
       | None ->
         begin match snd n with
-          | "recirculate" -> failwith "RECIRCULATE"
+          | "recirculate" -> (typ, true)
           | _ ->
             Printf.printf "WARNING:: Unknown name [%s] when checking control statement at %s\n%!" (snd n) (Petr4.Info.to_string info);
             (typ, recirc)
@@ -1681,7 +1681,7 @@ and check_pipelines (verbose_flag : bool ref) prog all pipeline_names (typ, reci
         outtyp_recirc
       )
 
-and check_prog (prog : program) (verbose_flag : bool ref) : Type.t  =
+and check_whole (prog : program) (verbose_flag : bool ref) (start_type : Type.t) : Type.t * bool =
   (*Lookup parser name, lookup control name(s) and check them in
      sequence, according to package named "main"*)
   let penv = parser_env prog in
@@ -1690,8 +1690,20 @@ and check_prog (prog : program) (verbose_flag : bool ref) : Type.t  =
   Printf.printf "Analyzing %d pipeline stages\n%!" (List.length pipeline_names + 1);
   Printf.printf ">>>>>>Checking %s\n%!" parser_name;
   let all = all_insts prog (get_header_type_name prsr_ctx) in
-  match check_parser_state verbose_flag prog prsr_ctx all penv start_state (Type.epsilon, false) with
+  match check_parser_state verbose_flag prog prsr_ctx all penv start_state (start_type, false) with
   | None -> failwith "Parser may not terminate"
   (* TODO Should the recirculation handling affect this? *)
-  | Some (typ, recirc) -> fst (check_pipelines verbose_flag prog all pipeline_names (typ, recirc))
+  | Some (typ, recirc) -> check_pipelines verbose_flag prog all pipeline_names (typ, recirc)
 
+and check_whole_with_recirc (prev_types : Type.t list) (prog : program) (verbose_flag : bool ref) (start_type : Type.t) : Type.t =
+  let (typ, recirc) = check_whole prog verbose_flag start_type in
+  if recirc then
+    if List.mem prev_types typ ~equal:(=) then
+      typ
+    else
+      check_whole_with_recirc (typ::prev_types) prog verbose_flag typ
+  else
+    typ
+
+and check_prog (prog : program) (verbose_flag : bool ref) : Type.t =
+  check_whole_with_recirc [] prog verbose_flag Type.epsilon
