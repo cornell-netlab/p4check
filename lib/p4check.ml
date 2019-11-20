@@ -1466,9 +1466,9 @@ and check_action_run_case (verbose_flag : bool ref) prog ctx all acts_typ_map (d
       |> check_block verbose_flag prog ctx all [] code
 
 and check_action_run_cases verbose_flag prog ctx all acts_typ_map (def_typ, recirc) cases =
-  List.fold_left cases ~init:(Type.epsilon, false) ~f:(fun (acc_typ, acct_recirc) case ->
+  List.fold_left cases ~init:(Type.epsilon, false) ~f:(fun (acc_typ, acc_recirc) case ->
       let (t, r) = check_action_run_case verbose_flag prog ctx all acts_typ_map (def_typ, recirc) case
-      in (Type.union acc_typ t, acct_recirc || r) (* TODO right way to compute new recirc? *)
+      in (Type.union acc_typ t, acc_recirc || r) (* TODO right way to compute new recirc? *)
     )
 
 and check_action_run (verbose_flag : bool ref) prog ctx all tbl_to_apply cases (typ, recirc) : Type.t * bool =
